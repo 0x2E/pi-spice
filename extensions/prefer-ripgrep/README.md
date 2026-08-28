@@ -20,6 +20,8 @@ pi -e ./extensions/prefer-ripgrep
 
 On `before_agent_start`, when the `bash` tool is active, appends a short search-command preference to the system prompt. Nothing is blocked and no commands are rewritten.
 
+Cache-friendly: the appended text is static and lands at the very end of the system prompt, producing a byte-identical prompt on every turn — so provider prompt caching is unaffected.
+
 ## License
 
 MIT

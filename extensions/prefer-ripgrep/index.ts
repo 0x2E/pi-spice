@@ -14,7 +14,8 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 export default function preferRipgrep(pi: ExtensionAPI) {
 	pi.on("before_agent_start", async (event) => {
-		// 只有 bash 工具激活时，bash 里的 grep/rg 选择才有意义
+		// Only relevant when the bash tool is active — otherwise the grep-vs-rg
+		// choice never comes up in a bash command.
 		const hasBash = event.systemPromptOptions.selectedTools?.includes("bash") ?? false;
 		if (!hasBash) return;
 
