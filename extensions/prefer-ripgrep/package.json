@@ -1,12 +1,12 @@
 {
-  "name": "@0x2e/pi-prefer-ripgrep",
+  "name": "@pi-spice/prefer-ripgrep",
   "version": "0.1.0",
   "description": "Nudge pi to use rg instead of grep in hand-written bash search commands",
   "keywords": ["pi-package"],
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/0x2E/pi-extensions.git",
+    "url": "git+https://github.com/0x2E/pi-spice.git",
     "directory": "extensions/prefer-ripgrep"
   },
   "pi": {

@@ -6,7 +6,7 @@
  * extension does one thing only: when the model hand-writes a search command
  * in bash, prefer `rg`.
  *
- * Install: pi install npm:@0x2e/pi-prefer-ripgrep
+ * Install: pi install npm:@pi-spice/prefer-ripgrep
  * Quick test: pi -e ./extensions/prefer-ripgrep
  */
 

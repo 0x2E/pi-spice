@@ -1,6 +1,12 @@
-# pi-extensions
+# pi-spice
 
-A collection of my [pi](https://github.com/earendil-works/pi) extensions: small, self-contained, zero-dependency by default. Each is published as an individual npm package — see its README for install instructions and details.
+Small spices for [pi](https://github.com/earendil-works/pi) — tiny, self-contained, zero-dependency extensions, each published as an individual npm package under the `@pi-spice` scope. See each extension's README for install instructions and details.
+
+Install the whole spice rack:
+
+```bash
+pi install npm:@pi-spice/all
+```
 
 ## Extensions
 

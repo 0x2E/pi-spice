@@ -1,4 +1,4 @@
-# pi-prefer-ripgrep
+# @pi-spice/prefer-ripgrep
 
 Nudges the model to use `rg` (ripgrep) instead of `grep` / `egrep` / `ack` when it hand-writes search commands inside bash calls.
 
@@ -7,7 +7,7 @@ pi's built-in `grep` tool is already backed by ripgrep (spawns `rg --json`, resp
 ## Install
 
 ```bash
-pi install npm:@0x2e/pi-prefer-ripgrep
+pi install npm:@pi-spice/prefer-ripgrep
 ```
 
 Quick test without installing (from this repo):
