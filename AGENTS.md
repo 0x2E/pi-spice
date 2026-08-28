@@ -20,10 +20,10 @@ pi-spice: a monorepo of pi extensions published as individual npm packages under
 
 ## API Reference
 
-Before writing or modifying an extension, read `docs/extensions.md` under the pi install directory (authoritative reference for events, `ctx`, `registerTool`, etc.). Local path:
+Before writing or modifying an extension, read `docs/extensions.md` under the pi install directory (authoritative reference for events, `ctx`, `registerTool`, etc.). Resolve the directory portably instead of hardcoding a path — it moves with every node/pi version:
 
-```
-/home/dev/.config/nvm/versions/node/v24.18.0/lib/node_modules/@earendil-works/pi-coding-agent/docs/extensions.md
+```bash
+"$(npm root -g)/@earendil-works/pi-coding-agent/docs/extensions.md"
 ```
 
 For working examples, see `examples/extensions/` in the same install directory. Always import types from `@earendil-works/pi-coding-agent`; pi resolves them at load time. For package manifest details, see `docs/packages.md` in the same directory.
