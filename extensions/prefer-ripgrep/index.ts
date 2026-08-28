@@ -6,9 +6,8 @@
  * extension does one thing only: when the model hand-writes a search command
  * in bash, prefer `rg`.
  *
- * Install: copy this directory to ~/.pi/agent/extensions/prefer-ripgrep/
- * (global) or .pi/extensions/prefer-ripgrep/ (project-local), or for a
- * quick test: pi -e ./extensions/prefer-ripgrep/index.ts
+ * Install: pi install npm:@0x2e/pi-prefer-ripgrep
+ * Quick test: pi -e ./extensions/prefer-ripgrep
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";

@@ -1,0 +1,18 @@
+{
+  "name": "@0x2e/pi-prefer-ripgrep",
+  "version": "0.1.0",
+  "description": "Nudge pi to use rg instead of grep in hand-written bash search commands",
+  "keywords": ["pi-package"],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/0x2E/pi-extensions.git",
+    "directory": "extensions/prefer-ripgrep"
+  },
+  "pi": {
+    "extensions": ["./index.ts"]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  }
+}
