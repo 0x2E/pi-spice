@@ -12,7 +12,7 @@ pi install npm:@pi-spice/all
 
 | Extension | Description |
 |-----------|-------------|
-| [prefer-ripgrep](./extensions/prefer-ripgrep) | Prefer `rg` over `grep` / `egrep` / `ack` in hand-written bash search commands |
+| [prefer-modern-cli](./extensions/prefer-modern-cli) | Prefer modern CLI tools (`rg`, `fd`) over `grep`/`find` in hand-written bash search commands |
 
 ## License
 

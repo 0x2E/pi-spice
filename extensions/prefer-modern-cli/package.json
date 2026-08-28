@@ -1,13 +1,13 @@
 {
-  "name": "@pi-spice/prefer-ripgrep",
+  "name": "@pi-spice/prefer-modern-cli",
   "version": "0.1.0",
-  "description": "Nudge pi to use rg instead of grep in hand-written bash search commands",
+  "description": "Nudge pi to use rg/fd instead of grep/find in hand-written bash search commands; warns when they are missing",
   "keywords": ["pi-package"],
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/0x2E/pi-spice.git",
-    "directory": "extensions/prefer-ripgrep"
+    "directory": "extensions/prefer-modern-cli"
   },
   "pi": {
     "extensions": ["./index.ts"]
