@@ -13,7 +13,7 @@
  * while the overlay is focused.
  */
 
-import { Markdown, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { Markdown, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import { type Message } from "@earendil-works/pi-ai";
 import { formatToolCall, formatUsageStats, type RenderTheme } from "./render.ts";
@@ -188,12 +188,22 @@ class AgentPanel {
 		this.activeTab = Math.min(this.activeTab, details.results.length - 1);
 
 		// --- header: tab bar ------------------------------------------------
-		const tabs = details.results
-			.map((r, i) => {
-				const label = `${i + 1} ${r.name} ${statusIcon(r, theme)}`;
-				return i === this.activeTab ? theme.fg("accent", theme.bold(`[${label}]`)) : theme.fg("dim", ` ${label} `);
-			})
-			.join(theme.fg("muted", "│"));
+		// Full labels (index + name + status) when they fit the panel width;
+		// otherwise degrade to compact slots (index + status) which always fit
+		// for up to MAX_AGENTS=8 tabs — the active agent's full identity stays
+		// visible as the timeline's first line either way.
+		const sep = theme.fg("muted", "│");
+		const renderSlots = (labels: string[]) =>
+			labels.map((label, i) => (i === this.activeTab ? theme.fg("accent", theme.bold(`[${label}]`)) : theme.fg("dim", ` ${label} `))).join(sep);
+		const fullLabels = details.results.map((r, i) => {
+			const name = r.name.length > 12 ? `${r.name.slice(0, 11)}…` : r.name;
+			return `${i + 1} ${name} ${statusIcon(r, theme)}`;
+		});
+		const fullFits =
+			7 + fullLabels.reduce((sum, l) => sum + visibleWidth(l) + 2, 0) + (fullLabels.length - 1) <= width;
+		const tabs = fullFits
+			? renderSlots(fullLabels)
+			: renderSlots(details.results.map((r, i) => `${i + 1}${statusIcon(r, theme)}`));
 		const header = [theme.fg("toolTitle", theme.bold("agents ")) + tabs, theme.fg("muted", "─".repeat(width))];
 
 		// --- body: windowed timeline ----------------------------------------
