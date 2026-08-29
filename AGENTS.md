@@ -4,6 +4,8 @@ pi-spice: a monorepo of pi extensions published as individual npm packages under
 
 ## Conventions
 
+- All changes land via PR into `main` — never commit or push directly to `main`.
+
 - Each extension is a directory `extensions/<name>/` containing exactly three files to start:
   - `index.ts` — the extension itself. Starts with a header comment stating what it does, why, and the install command. See `extensions/prefer-modern-cli/index.ts` for the style.
   - `package.json` — copy from an existing extension and adjust name/description. The non-obvious rules: `keywords` must include `pi-package` (gallery discoverability); the entry point is declared via `pi.extensions`; every `@earendil-works/*` / `typebox` import must be in `peerDependencies` with a `"*"` range — pi bundles these, so they must never appear in `dependencies`.
