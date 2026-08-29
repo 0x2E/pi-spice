@@ -5,10 +5,12 @@ Collapse streaming thinking blocks into a compact, live-refreshing preview.
 pi streams reasoning tokens in full, which can flood the transcript on long thinking turns. This extension turns every thinking block into a fixed-height preview instead:
 
 ```
-✻ thinking · 142 lines · alt+t to expand
-…second-to-last line of the thinking…
-…last line of the thinking…
+│ ✻ thinking · 142 lines · alt+t to expand
+│ …second-to-last line of the thinking…
+│ …last line of the thinking…
 ```
+
+The block renders as a blockquote, so it carries pi's `│ ` left bar and quote color — visually distinct from plain thinking text, echoing the framed look of tool-call rows (an exact `edit`/`bash`-style background box isn't reachable from a Markdown transformer).
 
 The preview refreshes on every streaming token, so the block doubles as a progress indicator — no flooding, but you always roughly know where the model is.
 
@@ -23,7 +25,7 @@ Quick test without installing: `pi -e ./extensions/thinking-preview`
 ## How it works
 
 - Uses a Markdown transformer (`pi.registerMarkdownTransformer`), which is **display-only**: the session file and the model context keep the full thinking text, untouched.
-- Preview content is plain text — Markdown syntax characters are escaped and rendered verbatim — and each line is hard-sliced to the available terminal width (width-aware for CJK), so the block never grows beyond the status line plus two content lines.
+- Preview content is plain text — Markdown syntax characters are escaped and rendered verbatim — and each line is hard-sliced to the available terminal width minus the `│ ` bar (width-aware for CJK), so the block never grows beyond the status line plus two content lines.
 - `alt+t` (or `/thinking-preview`) toggles **all** thinking blocks between preview and full text. Toggling re-renders history immediately. Restart resets to the collapsed preview default.
 - The toggle is global and sticky: once expanded, new thinking blocks render in full until you toggle back.
 

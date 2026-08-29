@@ -14,6 +14,8 @@
  * progress indicator. Preview content is plain text: Markdown syntax
  * characters are escaped and rendered verbatim, and each line is hard-sliced
  * to the available width (width-aware for CJK) so the block never grows.
+ * All three lines render as a blockquote, giving the block a `│ ` left bar
+ * and its own quote color — visually distinct from plain thinking text.
  *
  * `alt+t` (or `/thinking-preview`) toggles all thinking blocks between preview
  * and full text; toggling re-renders history too. Restart resets to the
@@ -42,6 +44,9 @@ let expanded = false;
  * previews render as plain text in CommonMark renderers (pi uses marked).
  */
 const ESCAPE_CLASS = /[\\`*_{}[\]()<>#+\-!|~&=.]/g;
+
+/** Columns consumed by the blockquote left bar (`│ `) framing each line. */
+const QUOTE_BAR_WIDTH = 2;
 
 /** Escape Markdown syntax so text renders verbatim. Newlines pass through. */
 export function escapeMarkdown(text: string): string {
@@ -126,11 +131,20 @@ export default function (pi: ExtensionAPI) {
 		const action = expanded ? "to collapse" : "to expand";
 		const status = `✻ thinking · ${lineCount} line${lineCount === 1 ? "" : "s"} · ${TOGGLE_KEY} ${action}`;
 
-		if (expanded) return `${status}\n\n${escapeMarkdown(text)}`;
+		if (expanded) {
+			// Full plain text inside the same `│ `-framed block, natural wrap.
+			const body = escapeMarkdown(text)
+				.split("\n")
+				.map((line) => (line.trim() ? `> ${line}` : ">"))
+				.join("\n");
+			return `> ${status}\n${body}`;
+		}
 
-		const width = Math.max(availableWidth, 20);
+		const width = Math.max(availableWidth - QUOTE_BAR_WIDTH, 20);
 		const tail = tailLines(text, PREVIEW_LINES).map((line) => escapeMarkdown(sliceToWidth(line, width)));
-		return [status, ...tail].join("\n\n");
+		// Backslash line breaks keep the three lines inside one blockquote tight
+		// (soft breaks would glue them into a single wrapped paragraph).
+		return [`> ${status}\\`, ...tail.map((line) => `> ${line}\\`)].join("\n");
 	});
 
 	pi.registerShortcut(TOGGLE_KEY, {
