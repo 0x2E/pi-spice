@@ -9,6 +9,9 @@
     "url": "git+https://github.com/0x2E/pi-spice.git"
   },
   "files": ["extensions"],
+  "publishConfig": {
+    "access": "public"
+  },
   "pi": {
     "extensions": ["extensions/*/index.ts"]
   }
