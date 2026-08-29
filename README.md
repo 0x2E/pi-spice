@@ -13,6 +13,7 @@ pi install npm:@pi-spice/all
 | Extension | Description |
 |-----------|-------------|
 | [prefer-modern-cli](./extensions/prefer-modern-cli) | Prefer modern CLI tools (`rg`, `fd`) over `grep`/`find` in hand-written bash search commands |
+| [thinking-preview](./extensions/thinking-preview) | Collapse streaming thinking blocks into a fixed-height live preview; `alt+t` toggles full text |
 
 ## License
 

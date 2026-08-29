@@ -1,0 +1,21 @@
+{
+  "name": "@pi-spice/thinking-preview",
+  "version": "0.1.0",
+  "description": "Collapse streaming thinking blocks into a fixed-height live preview; alt+t toggles full text",
+  "keywords": ["pi-package"],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/0x2E/pi-spice.git",
+    "directory": "extensions/thinking-preview"
+  },
+  "pi": {
+    "extensions": ["./index.ts"]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
