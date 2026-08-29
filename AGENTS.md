@@ -6,10 +6,10 @@ pi-spice: a monorepo of pi extensions published as individual npm packages. Each
 
 - All changes land via PR into `main`.
 
-- Each extension is a directory `extensions/<name>/` containing exactly three files:
-  - `index.ts` — the extension itself. Starts with a header comment stating what it does, why, and the install command. See `extensions/prefer-modern-cli/index.ts` for the style.
+- Each extension is a directory `extensions/<name>/` containing at least these three files (extra modules are fine, imported relatively from the entry):
+  - `index.ts` — the extension entry point; the name is fixed (the meta-package globs `extensions/*/index.ts`). Starts with a header comment stating what it does, why, and the install command. See `extensions/prefer-modern-cli/index.ts` for the style.
   - `package.json` — copy from an existing extension and name it `@pi-spice/<name>`. `keywords` must include `pi-package` (gallery discoverability). Every `@earendil-works/*` / `typebox` import goes in `peerDependencies` with a `"*"` range — pi bundles these, so they must never appear in `dependencies`.
-  - `README.md` — what npm shows: purpose, install command, how it works.
+  - `README.md` — what npm shows: purpose, install command, how it works. Title is the package name (`# @pi-spice/<name>`).
 
 - Adding an extension needs no wiring: the root `@pi-spice/all` meta-package picks up `extensions/*/index.ts`, and publishing discovers `extensions/*/package.json` automatically.
 
