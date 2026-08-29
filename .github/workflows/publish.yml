@@ -39,10 +39,13 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           set -euo pipefail
+          shopt -s nullglob
           published=""
-          for dir in extensions/prefer-modern-cli extensions/thinking-preview .; do
-            name=$(node -p "require('$dir/package.json').name")
-            version=$(node -p "require('$dir/package.json').version")
+          for dir in extensions/*/ .; do
+            pkg="${dir%/}/package.json"
+            [ -f "$pkg" ] || { echo "skip $dir: no package.json"; continue; }
+            name=$(node -p "require('./${pkg}').name")
+            version=$(node -p "require('./${pkg}').version")
             if npm view "$name@$version" version >/dev/null 2>&1; then
               echo "skip $name@$version (already published)"
             else

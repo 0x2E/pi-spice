@@ -13,7 +13,7 @@ pi-spice: a monorepo of pi extensions published as individual npm packages under
 - npm package name: `@pi-spice/<name>`.
 - The repo root is the `@pi-spice/all` meta-package: its `pi.extensions` glob (`extensions/*/index.ts`) picks up every extension automatically — no per-extension wiring when adding one.
 - New extensions get one row in the root `README.md` extension table; that table is the single source of truth for the list — do not copy it elsewhere.
-- Publishing is automated by `.github/workflows/publish.yml`: push a tag `v<version>` matching the root package `version` (the workflow verifies the match) and it publishes every package whose current version is not yet on npm, then creates a GitHub release. Bump `version` in the same commit as the change being released. Requires the `NPM_TOKEN` repo secret: an npm granular access token with read/write on the `pi-spice` scope.
+- Publishing is automated by `.github/workflows/publish.yml`: push a tag `v<version>` matching the root package `version` (the workflow verifies the match) and it publishes every package whose current version is not yet on npm — packages are discovered automatically (`extensions/*/package.json` plus the root meta-package), so a new extension needs no workflow wiring — then creates a GitHub release. Bump `version` in the same commit as the change being released. Requires the `NPM_TOKEN` repo secret: an npm granular access token with read/write on the `pi-spice` scope.
 
 ## Verification
 
