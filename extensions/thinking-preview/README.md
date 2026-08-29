@@ -1,4 +1,4 @@
-# thinking-preview
+# @pi-spice/thinking-preview
 
 Collapse streaming thinking blocks into a compact, live-refreshing preview.
 
