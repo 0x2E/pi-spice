@@ -1,0 +1,22 @@
+{
+  "name": "@pi-spice/prefer-modern-cli",
+  "version": "0.1.0",
+  "description": "Nudge pi to use rg/fd instead of grep/find in hand-written bash search commands; warns when they are missing",
+  "keywords": ["pi-package"],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/0x2E/pi-spice.git",
+    "directory": "extensions/prefer-modern-cli"
+  },
+  "pi": {
+    "extensions": ["./index.ts"]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
