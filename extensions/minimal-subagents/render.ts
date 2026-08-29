@@ -26,7 +26,7 @@ const COLLAPSED_ITEM_COUNT = 10;
 export type SpawnAgentsArgs = { agents?: AgentSpec[] };
 
 /** Structural slice of pi's theme object — keeps this file decoupled from theme internals. */
-interface RenderTheme {
+export interface RenderTheme {
 	fg(color: string, text: string): string;
 	bold(text: string): string;
 }
@@ -38,7 +38,7 @@ function formatTokens(count: number): string {
 	return `${(count / 1000000).toFixed(1)}M`;
 }
 
-function formatUsageStats(
+export function formatUsageStats(
 	usage: {
 		input: number;
 		output: number;
@@ -64,7 +64,7 @@ function formatUsageStats(
 	return parts.join(" ");
 }
 
-function formatToolCall(
+export function formatToolCall(
 	toolName: string,
 	args: Record<string, unknown>,
 	themeFg: (color: any, text: string) => string,
@@ -195,7 +195,12 @@ export function renderSpawnResult(
 	if (details.results.length === 1) {
 		const r = details.results[0];
 		const isError = isFailedResult(r);
-		const icon = isError ? theme.fg("error", "✗") : theme.fg("success", "✓");
+		const isAgentRunning = r.exitCode === -1;
+		const icon = isAgentRunning
+			? theme.fg("warning", "⏳")
+			: isError
+				? theme.fg("error", "✗")
+				: theme.fg("success", "✓");
 		const displayItems = getDisplayItems(r.messages);
 		const finalOutput = getFinalOutput(r.messages);
 
@@ -246,6 +251,7 @@ export function renderSpawnResult(
 		}
 		const usageStr = formatUsageStats(r.usage, r.model);
 		if (usageStr) text += `\n${theme.fg("dim", usageStr)}`;
+		if (isAgentRunning) text += `\n${theme.fg("muted", "(alt+a · live details)")}`;
 		return new Text(text, 0, 0);
 	}
 
@@ -335,6 +341,8 @@ export function renderSpawnResult(
 	if (!isRunning) {
 		const usageStr = formatUsageStats(aggregateUsage(details.results));
 		if (usageStr) text += `\n\n${theme.fg("dim", `Total: ${usageStr}`)}`;
+	} else {
+		text += `\n${theme.fg("muted", "(alt+a · live details)")}`;
 	}
 	if (!expanded) text += `\n${theme.fg("muted", "(Ctrl+O to expand)")}`;
 	return new Text(text, 0, 0);

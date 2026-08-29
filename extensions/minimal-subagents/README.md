@@ -33,6 +33,17 @@ Behavior:
 - **Isolated context** — each sub-agent is a separate `pi -p --no-session` process with its own context window; it shares the parent's working directory and project context.
 - **Abort** — interrupting the parent kills sub-agents (`SIGTERM`, then `SIGKILL` after 5 s).
 
+## Details panel (alt+a)
+
+Press `alt+a` any time to open a right-side overlay panel for the latest `spawn_agents` call:
+
+- One tab per sub-agent (`←`/`→` or `1`-`8` to switch), labeled with name and live status (⏳/✓/✗).
+- Each tab is the agent's **full timeline** from task to current state: tool calls, tool-result previews (first 10 lines, dimmed), assistant output rendered as markdown, usage stats. Thinking blocks are not shown.
+- Scrolls like a terminal: `↑/↓`, `PgUp/PgDn`, `Home`/`g`, `End`/`G`, and mouse wheel over the panel. Pinned to the bottom while following new output; scrolling up pauses the follow, `End` resumes it.
+- Live-updates while agents run; `Esc` closes. Shows the most recent call only — scroll the transcript (`Ctrl+O`) for older ones.
+
+The panel is an experimental pi overlay; keyboard input always works, mouse wheel depends on your terminal's SGR mouse reporting.
+
 ## No nesting
 
 Spawned sub-agents run with `PI_SUBAGENTS_CHILD=1` in their environment; the extension sees it at load time and skips tool registration. Sub-agents therefore cannot spawn their own sub-agents, while keeping every other installed extension available.

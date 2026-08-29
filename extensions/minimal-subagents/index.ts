@@ -28,6 +28,7 @@ import {
 	type SubagentDetails,
 } from "./spawn.ts";
 import { renderSpawnCall, renderSpawnResult } from "./render.ts";
+import { openAgentPanel, setPanelDetails } from "./panel.ts";
 
 const MAX_AGENTS = 8;
 const MAX_CONCURRENCY = 4;
@@ -115,6 +116,7 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			const emitParallelUpdate = () => {
+				setPanelDetails(makeDetails([...allResults]));
 				if (onUpdate) {
 					const running = allResults.filter((r) => r.exitCode === -1).length;
 					const done = allResults.filter((r) => r.exitCode !== -1).length;
@@ -148,6 +150,7 @@ export default function (pi: ExtensionAPI) {
 			});
 
 			const successCount = results.filter((r) => !isFailedResult(r)).length;
+			setPanelDetails(makeDetails(results));
 			const summaries = results.map((r) => {
 				const output = truncateParallelOutput(getResultOutput(r));
 				const status = isFailedResult(r)
@@ -169,5 +172,10 @@ export default function (pi: ExtensionAPI) {
 
 		renderCall: renderSpawnCall,
 		renderResult: renderSpawnResult,
+	});
+
+	pi.registerShortcut("alt+a", {
+		description: "Open the sub-agent details panel (tabs per agent, full timeline)",
+		handler: (ctx) => openAgentPanel(ctx),
 	});
 }
