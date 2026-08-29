@@ -305,6 +305,7 @@ async function runSpec(
 		const invocation = getPiInvocation(args);
 		const proc = spawn(invocation.command, invocation.args, {
 			cwd: defaultCwd,
+			env: { ...process.env, PI_SUBAGENTS_CHILD: "1" },
 			shell: false,
 			stdio: ["ignore", "pipe", "pipe"],
 		});
@@ -418,6 +419,12 @@ const SpawnAgentsParams = Type.Object({
 });
 
 export default function (pi: ExtensionAPI) {
+	// Nesting guard: sub-agent processes run with PI_SUBAGENTS_CHILD=1 (set in
+	// runSpec's spawn env). Refuse to register the tool there, so sub-agents
+	// cannot spawn their own sub-agents — while keeping every other extension
+	// available to them.
+	if (process.env.PI_SUBAGENTS_CHILD) return;
+
 	pi.registerTool({
 		name: "spawn_agents",
 		label: "Spawn agents",
