@@ -1,4 +1,4 @@
-# minimal-subagents
+# @pi-spice/minimal-subagents
 
 Create sub-agents dynamically and run them in parallel with one blocking tool call. No predefined agent files, no orchestration, no nesting — each sub-agent is described inline, spawned as an isolated `pi` process, and the parent waits until every one of them finishes.
 
