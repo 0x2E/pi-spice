@@ -17,7 +17,7 @@ import { Markdown, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import { type Message } from "@earendil-works/pi-ai";
 import { formatToolCall, formatUsageStats, type RenderTheme } from "./render.ts";
-import { type SingleResult, type SubagentDetails } from "./spawn.ts";
+import { isFailedResult, type SingleResult, type SubagentDetails } from "./spawn.ts";
 
 // ---------------------------------------------------------------------------
 // Module state: the latest spawn_agents details, updated by index.ts
@@ -68,13 +68,13 @@ export function openAgentPanel(ctx: { ui: any; hasUI?: boolean }): void {
 const TOOL_RESULT_PREVIEW_LINES = 10;
 const WHEEL_LINES = 3;
 
-function statusIcon(result: SingleResult, theme: RenderTheme): string {
-	if (result.exitCode === -1) return theme.fg("warning", "⏳");
-	return isAgentFailed(result) ? theme.fg("error", "✗") : theme.fg("success", "✓");
+function isAgentRunning(result: SingleResult): boolean {
+	return result.exitCode === -1;
 }
 
-function isAgentFailed(result: SingleResult): boolean {
-	return result.exitCode !== 0 || result.stopReason === "error" || result.stopReason === "aborted";
+function statusIcon(result: SingleResult, theme: RenderTheme): string {
+	if (isAgentRunning(result)) return theme.fg("warning", "⏳");
+	return isFailedResult(result) ? theme.fg("error", "✗") : theme.fg("success", "✓");
 }
 
 /** Flatten one agent's messages into styled lines (unwindowed). */
@@ -86,9 +86,9 @@ function buildTimeline(result: SingleResult, theme: RenderTheme, width: number):
 	};
 
 	const status =
-		result.exitCode === -1
+		isAgentRunning(result)
 			? theme.fg("warning", "running")
-			: isAgentFailed(result)
+			: isFailedResult(result)
 				? theme.fg("error", `failed${result.stopReason && result.stopReason !== "end" ? ` (${result.stopReason})` : ""}`)
 				: theme.fg("success", "completed");
 
