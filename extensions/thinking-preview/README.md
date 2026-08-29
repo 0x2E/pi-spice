@@ -20,18 +20,18 @@ The preview refreshes on every streaming token, so the block doubles as a progre
 pi install npm:@pi-spice/thinking-preview
 ```
 
-Quick test without installing: `pi -e ./extensions/thinking-preview`
+Quick test without installing: `pi -e ./extensions/thinking-preview/`
 
 ## How it works
 
 - Uses a Markdown transformer (`pi.registerMarkdownTransformer`), which is **display-only**: the session file and the model context keep the full thinking text, untouched.
-- Preview content is plain text — Markdown syntax characters are escaped and rendered verbatim — and each line is hard-sliced to the available terminal width minus the `│ ` bar (width-aware for CJK), so the block never grows beyond the status line plus two content lines.
-- `alt+t` (or `/thinking-preview`) toggles **all** thinking blocks between preview and full text. Toggling re-renders history immediately. Restart resets to the collapsed preview default.
+- Preview content is plain text — Markdown syntax characters are escaped and rendered verbatim — and every line (status line included) is hard-sliced to the available terminal width minus the `│ ` bar (width-aware for CJK/emoji), so the block stays within the status line plus two content lines on normal terminal widths.
+- `alt+t` (or `/thinking-preview`) toggles **all** thinking blocks between preview and full text. Expanded mode shows the full text as escaped plain text inside the same `│ `-framed block, with source line breaks preserved; long lines wrap naturally. Toggling re-renders history immediately and shows a notification. Restart resets to the collapsed preview default.
 - The toggle is global and sticky: once expanded, new thinking blocks render in full until you toggle back.
 
 ## Interaction with pi's built-in thinking controls
 
-- `ctrl+t` (hide thinking blocks) takes precedence: while thinking is hidden, blocks render as a one-line label and this extension has no visible effect. Press `ctrl+t` to make thinking visible again.
+- `ctrl+t` (hide thinking blocks) takes precedence: while thinking is hidden, blocks render as a one-line label and this extension has no visible effect on the transcript — though the `alt+t` notification still fires. Press `ctrl+t` to make thinking visible again.
 - `ctrl+t` *showing* thinking also goes through this extension, so it shows the preview — not full text. Use `alt+t` for full text.
 - Toggling re-applies the default hidden-thinking label (`Thinking...`); if you customized that label elsewhere, it will be reset on toggle.
 

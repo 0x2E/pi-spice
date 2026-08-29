@@ -24,7 +24,7 @@
  * toggle has no visible effect until thinking is visible again.
  *
  * Install: pi install npm:@pi-spice/thinking-preview
- * Quick test: pi -e ./extensions/thinking-preview
+ * Quick test: pi -e ./extensions/thinking-preview/
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -43,7 +43,7 @@ let expanded = false;
  * (emphasis, code, links, headings, lists, tables, …). Backslash-escaped so
  * previews render as plain text in CommonMark renderers (pi uses marked).
  */
-const ESCAPE_CLASS = /[\\`*_{}[\]()<>#+\-!|~&=.]/g;
+const ESCAPE_CLASS = /[\\`*_{}[\]()<>#+\-!|~&=.:\/\\@]/g;
 
 /** Columns consumed by the blockquote left bar (`│ `) framing each line. */
 const QUOTE_BAR_WIDTH = 2;
@@ -53,8 +53,9 @@ export function escapeMarkdown(text: string): string {
 	return text.replace(ESCAPE_CLASS, (c) => `\\${c}`);
 }
 
-/** Terminal column width of a code point: 2 for CJK/fullwidth ranges, else 1. */
+/** Terminal column width of a code point: 0 for joiners/variants, 2 for wide, else 1. */
 function charWidth(cp: number): number {
+	if (cp === 0x200d || cp === 0xfe0f) return 0; // ZWJ / variation selector-16
 	return (
 		(cp >= 0x1100 && cp <= 0x115f) || // Hangul Jamo
 		(cp >= 0x2e80 && cp <= 0xa4cf) || // CJK radicals … Yi
@@ -63,6 +64,8 @@ function charWidth(cp: number): number {
 		(cp >= 0xfe30 && cp <= 0xfe4f) || // CJK compatibility forms
 		(cp >= 0xff00 && cp <= 0xff60) || // fullwidth forms
 		(cp >= 0xffe0 && cp <= 0xffe6) ||
+		(cp >= 0x2600 && cp <= 0x27bf) || // BMP symbols / emoji (⚡✨…)
+		(cp >= 0x2b00 && cp <= 0x2bff) || // arrows / stars (⭐…)
 		(cp >= 0x1f000 && cp <= 0x1faff) || // emoji / pictographs (rocket 🚀, cards, …)
 		(cp >= 0x20000 && cp <= 0x3fffd) // CJK extension B+
 			? 2
@@ -72,7 +75,10 @@ function charWidth(cp: number): number {
 
 /** Hard-slice a line to `width` terminal columns, walking code points. */
 export function sliceToWidth(line: string, width: number): string {
-	if (width <= 0) return line;
+	// Abnormal budgets (0/NaN): return the line untouched rather than empty —
+	// the blockquote renderer wraps border-aware, so an overlong line degrades
+	// gracefully instead of vanishing.
+	if (!Number.isFinite(width) || width <= 0) return line;
 	let used = 0;
 	let out = "";
 	for (const ch of line) {
@@ -108,6 +114,7 @@ function countNonEmptyLines(text: string): number {
 /** Flip the display mode and force every message component to re-render. */
 function toggle(ctx: ExtensionContext): void {
 	expanded = !expanded;
+	ctx.ui.notify(expanded ? "Thinking: full text" : "Thinking: preview", "info");
 	try {
 		// Re-propagating the hidden-thinking label makes every assistant
 		// message component re-render through this extension's transformer, so
@@ -115,7 +122,6 @@ function toggle(ctx: ExtensionContext): void {
 		// next streaming token or a terminal resize. Side effect: a custom
 		// hidden-thinking label set elsewhere resets to its default.
 		ctx.ui.setHiddenThinkingLabel();
-		ctx.ui.notify(expanded ? "Thinking: full text" : "Thinking: preview", "info");
 	} catch {
 		// Non-interactive modes: the flag still flipped; nothing to redraw.
 	}
@@ -130,21 +136,23 @@ export default function (pi: ExtensionAPI) {
 		const lineCount = countNonEmptyLines(text);
 		const action = expanded ? "to collapse" : "to expand";
 		const status = `✻ thinking · ${lineCount} line${lineCount === 1 ? "" : "s"} · ${TOGGLE_KEY} ${action}`;
+		const width = Math.max(availableWidth - QUOTE_BAR_WIDTH, 20);
+		const statusLine = sliceToWidth(status, width);
 
+		// Backslash line breaks keep consecutive lines inside one blockquote
+		// from gluing into a single wrapped paragraph (CommonMark soft break).
 		if (expanded) {
-			// Full plain text inside the same `│ `-framed block, natural wrap.
+			// Full plain text inside the same `│ `-framed block, natural wrap;
+			// source line structure preserved via hard breaks, blank lines as `>`.
 			const body = escapeMarkdown(text)
 				.split("\n")
-				.map((line) => (line.trim() ? `> ${line}` : ">"))
+				.map((line) => (line.trim() ? `> ${line}\\` : ">"))
 				.join("\n");
-			return `> ${status}\n${body}`;
+			return `> ${statusLine}\\\n${body}`;
 		}
 
-		const width = Math.max(availableWidth - QUOTE_BAR_WIDTH, 20);
 		const tail = tailLines(text, PREVIEW_LINES).map((line) => escapeMarkdown(sliceToWidth(line, width)));
-		// Backslash line breaks keep the three lines inside one blockquote tight
-		// (soft breaks would glue them into a single wrapped paragraph).
-		return [`> ${status}\\`, ...tail.map((line) => `> ${line}\\`)].join("\n");
+		return [`> ${statusLine}\\`, ...tail.map((line, i) => `> ${line}${i < tail.length - 1 ? "\\" : ""}`)].join("\n");
 	});
 
 	pi.registerShortcut(TOGGLE_KEY, {
