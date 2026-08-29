@@ -71,7 +71,9 @@ export function getFinalOutput(messages: Message[]): string {
 }
 
 export function isFailedResult(result: SingleResult): boolean {
-	return result.exitCode !== 0 || result.stopReason === "error" || result.stopReason === "aborted";
+	// exitCode -1 means still running; a real non-zero exit (or an error/abort
+	// stop reason) is the failure signal.
+	return result.exitCode > 0 || result.stopReason === "error" || result.stopReason === "aborted";
 }
 
 export function getResultOutput(result: SingleResult): string {
@@ -143,6 +145,9 @@ export async function runSpec(
 	makeDetails: (results: SingleResult[]) => SubagentDetails,
 ): Promise<SingleResult> {
 	const args: string[] = ["--mode", "json", "-p", "--no-session"];
+	// Belt-and-braces: even if the env sentinel were scrubbed, the child's
+	// pi never sees the spawn_agents tool.
+	args.push("--exclude-tools", "spawn_agents");
 	const model = spec.model ?? dispatchDefaults.model;
 	if (model) args.push("--model", model);
 	const thinking = spec.thinking ?? dispatchDefaults.thinkingLevel;
@@ -156,7 +161,7 @@ export async function runSpec(
 	const currentResult: SingleResult = {
 		name: displayName,
 		task: spec.task,
-		exitCode: 0,
+		exitCode: -1, // -1 = still running; real exit code set on close
 		messages: [],
 		stderr: "",
 		usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
@@ -174,6 +179,8 @@ export async function runSpec(
 
 	args.push(`Task: ${spec.task}`);
 	let wasAborted = false;
+	let closed = false;
+	let hardKillTimer: ReturnType<typeof setTimeout> | undefined;
 
 	const exitCode = await new Promise<number>((resolve) => {
 		const invocation = getPiInvocation(args);
@@ -182,6 +189,9 @@ export async function runSpec(
 			env: { ...process.env, PI_SUBAGENTS_CHILD: "1" },
 			shell: false,
 			stdio: ["ignore", "pipe", "pipe"],
+			// Own process group on POSIX so abort can kill the whole tree
+			// (the child spawns grandchildren like bash).
+			detached: process.platform !== "win32",
 		});
 		let buffer = "";
 
@@ -234,20 +244,35 @@ export async function runSpec(
 		});
 
 		proc.on("close", (code) => {
+			closed = true;
+			if (hardKillTimer) clearTimeout(hardKillTimer);
 			if (buffer.trim()) processLine(buffer);
-			resolve(code ?? 0);
+			// A null code means death by signal — count it as failure unless we
+			// aborted on purpose (the abort path throws below instead).
+			resolve(code ?? 1);
 		});
 
-		proc.on("error", () => {
+		proc.on("error", (err) => {
+			currentResult.errorMessage = err instanceof Error ? err.message : String(err);
 			resolve(1);
 		});
 
 		if (signal) {
+			const killTree = (sig: NodeJS.Signals) => {
+				try {
+					if (process.platform === "win32" || proc.pid === undefined) proc.kill(sig);
+					else process.kill(-proc.pid, sig); // negative pid = process group
+				} catch {
+					/* already gone */
+				}
+			};
 			const killProc = () => {
 				wasAborted = true;
-				proc.kill("SIGTERM");
-				setTimeout(() => {
-					if (!proc.killed) proc.kill("SIGKILL");
+				killTree("SIGTERM");
+				// NOTE: proc.killed flips true once the signal is *sent*, so it
+				// cannot gate the SIGKILL fallback — track `closed` instead.
+				hardKillTimer = setTimeout(() => {
+					if (!closed) killTree("SIGKILL");
 				}, 5000);
 			};
 			if (signal.aborted) killProc();

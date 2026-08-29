@@ -29,7 +29,7 @@ Behavior:
 
 - **Parallel, blocking** — up to 8 agents per call, at most 4 running at once; the tool returns when all finish. Each result is a `### [name] completed/failed` section with the agent's final output (capped at 50 KB per agent; the full transcript stays in the tool details).
 - **Failures don't cancel siblings** — every agent runs to completion; per-agent status is reported. The tool marks `isError` only when *all* agents failed.
-- **Live progress** — sub-agent tool calls and output stream into the parent's TUI while the call is running (expand with `Ctrl+O`).
+- **Live progress** — sub-agent tool calls and output stream into the parent's TUI while the call is running; after it finishes, expand the result (`Ctrl+O`) for the full view.
 - **Isolated context** — each sub-agent is a separate `pi -p --no-session` process with its own context window; it shares the parent's working directory and project context.
 - **Abort** — interrupting the parent kills sub-agents (`SIGTERM`, then `SIGKILL` after 5 s).
 
@@ -49,7 +49,9 @@ Two platform limits, honestly stated:
 
 ## No nesting
 
-Spawned sub-agents run with `PI_SUBAGENTS_CHILD=1` in their environment; the extension sees it at load time and skips tool registration. Sub-agents therefore cannot spawn their own sub-agents, while keeping every other installed extension available.
+Two layers keep sub-agents from spawning their own sub-agents: children run with `PI_SUBAGENTS_CHILD=1` in their environment (the extension skips tool registration when it sees it), and they are launched with `--exclude-tools spawn_agents` as a backstop. Sub-agents keep every other installed extension available.
+
+This is a guard, not a sandbox: a sub-agent with `bash` access can start arbitrary processes and could work around both layers (e.g. `env -u PI_SUBAGENTS_CHILD pi ...`). If you need hard isolation, restrict the agent's `tools` or run inside a container.
 
 Side effect: if you export `PI_SUBAGENTS_CHILD=1` in your own shell, `spawn_agents` will not appear in your sessions.
 

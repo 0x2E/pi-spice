@@ -43,7 +43,7 @@ const AgentSpecSchema = Type.Object({
 				"Role, constraints and output-format rules for this agent (appended to the child's system prompt). Put standing instructions here, not the assignment.",
 		}),
 	),
-	task: Type.String({ description: "The concrete assignment this agent must complete" }),
+	task: Type.String({ minLength: 1, description: "The concrete assignment this agent must complete" }),
 	model: Type.Optional(
 		Type.String({ description: 'Model for this agent, e.g. "anthropic/claude-haiku-4-5". Default: inherit parent session model' }),
 	),

@@ -184,6 +184,8 @@ class AgentPanel {
 			return [theme.fg("muted", "(no agent data yet — run spawn_agents first)")];
 
 		this.renderWidth = width;
+		// A newer spawn_agents call may have fewer agents — clamp the tab.
+		this.activeTab = Math.min(this.activeTab, details.results.length - 1);
 
 		// --- header: tab bar ------------------------------------------------
 		const tabs = details.results
@@ -220,6 +222,15 @@ class AgentPanel {
 	}
 
 	handleInput(data: string): void {
+		try {
+			this.handleInputInner(data);
+		} catch (err) {
+			// A panel bug must never crash the host TUI.
+			this.tui.requestRender();
+		}
+	}
+
+	private handleInputInner(data: string): void {
 		const details = currentDetails;
 		if (!details || details.results.length === 0) {
 			if (data === "\x1b") this.close();
