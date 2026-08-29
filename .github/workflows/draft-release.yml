@@ -17,11 +17,19 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          fetch-depth: 0 # full history: verify the tag descends from main
           persist-credentials: false # nothing here needs git credentials
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
+
+      - name: Verify tag descends from main
+        run: |
+          if ! git merge-base --is-ancestor HEAD origin/main; then
+            echo "::error::tag ${GITHUB_REF_NAME} is not on main; changes must land via PR first"
+            exit 1
+          fi
 
       - name: Verify tag matches root version
         run: |
