@@ -48,12 +48,15 @@ export function openAgentPanel(ctx: { ui: any; hasUI?: boolean }): void {
 			{
 				overlay: true,
 				overlayOptions: {
-					anchor: "right-center",
-					width: "50%",
-					minWidth: 50,
-					maxHeight: "80%",
-					margin: 1,
-				},
+				// Full-height right column: anchor top-right, zero margin, and
+				// render() always returns exactly `rows` lines (overlay height is
+				// content-driven, capped by maxHeight).
+				anchor: "top-right",
+				width: "50%",
+				minWidth: 50,
+				maxHeight: "100%",
+				margin: 0,
+			},
 			},
 		)
 		.finally(() => {
@@ -193,8 +196,9 @@ class AgentPanel {
 
 		// --- body: windowed timeline ----------------------------------------
 		const rows = this.tui?.terminal?.rows ?? process.stdout.rows ?? 24;
-		const cap = Math.floor(rows * 0.8) - 2; // overlay maxHeight "80%", minus safety
-		this.bodyHeight = Math.max(4, cap - header.length - 1 /* footer */);
+		const headerH = header.length; // tab bar + rule
+		const footerH = 2; // rule + status line
+		this.bodyHeight = Math.max(4, rows - headerH - footerH);
 
 		const lines = buildTimeline(details.results[this.activeTab], theme, width);
 		this.lineCount = lines.length;

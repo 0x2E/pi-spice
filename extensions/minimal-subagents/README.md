@@ -35,14 +35,17 @@ Behavior:
 
 ## Details panel (alt+a)
 
-Press `alt+a` any time to open a right-side overlay panel for the latest `spawn_agents` call:
+Press `alt+a` any time to open a full-height right column showing the latest `spawn_agents` call:
 
 - One tab per sub-agent (`←`/`→` or `1`-`8` to switch), labeled with name and live status (⏳/✓/✗).
 - Each tab is the agent's **full timeline** from task to current state: tool calls, tool-result previews (first 10 lines, dimmed), assistant output rendered as markdown, usage stats. Thinking blocks are not shown.
-- Scrolls like a terminal: `↑/↓`, `PgUp/PgDn`, `Home`/`g`, `End`/`G`, and mouse wheel over the panel. Pinned to the bottom while following new output; scrolling up pauses the follow, `End` resumes it.
+- Scrolls like a terminal: `↑/↓`, `PgUp/PgDn`, `Home`/`g`, `End`/`G`, plus mouse wheel — pinned to the bottom while following new output; scrolling up pauses the follow, `End` resumes it.
 - Live-updates while agents run; `Esc` closes. Shows the most recent call only — scroll the transcript (`Ctrl+O`) for older ones.
 
-The panel is an experimental pi overlay; keyboard input always works, mouse wheel depends on your terminal's SGR mouse reporting.
+Two platform limits, honestly stated:
+
+- The panel is an **overlay**, not a true layout split: it covers the right half of the screen, the main transcript is not reflowed around it. A persistent split-pane API does not exist in pi's extension surface today.
+- **Mouse wheel only works when pi runs `--tui-mode fullscreen`** — the only mode where pi enables terminal mouse reporting, so the only mode where wheel events reach the panel. In regular mode, use the keyboard.
 
 ## No nesting
 
