@@ -1,8 +1,6 @@
 # @pi-spice/minimal-subagents
 
-Create sub-agents dynamically and run them in parallel with one blocking tool call. No predefined agent files, no orchestration, no nesting — each sub-agent is described inline, spawned as an isolated `pi` process, and the parent waits until every one of them finishes.
-
-Forked from the official pi example extension [`examples/extensions/subagent`](https://github.com/earendil-works/pi) (MIT), stripped to its minimal core.
+One tool, `spawn_agents`: describe sub-agents inline, run them in parallel, block until every one finishes. No predefined agent files, no orchestration, no nesting. Each sub-agent is an isolated `pi` process with its own context window; the child-process machinery is adapted from pi's official subagent example.
 
 ## Install
 
@@ -14,49 +12,28 @@ Quick test from this repo: `pi -e ./extensions/minimal-subagents`
 
 ## How it works
 
-The model calls a single tool, `spawn_agents`, with an array of agent specs (a single task is an array of one):
+`spawn_agents({ agents: [spec...] })` — a single task is an array of one; up to 8 per call, 4 running at a time.
 
 | Field | Required | Default |
 |---|---|---|
 | `task` | ✓ | — |
-| `systemPrompt` | — | child default; passed via `--append-system-prompt` (role/constraints go here, not the assignment) |
+| `systemPrompt` | — | child default; role/constraints go here, not the assignment |
 | `model` | — | inherit the parent session's model |
 | `thinking` | — | inherit the parent session's thinking level (`off`…`max`) |
 | `tools` | — | child default tools; e.g. `["read","grep","find","ls"]` for read-only scouts |
-| `name` | — | `agent-<index>`, used for display and result labels |
+| `name` | — | `agent-<index>` |
 
-Behavior:
+- **Failures don't cancel siblings** — every agent runs to completion; each result is a `### [name] completed/failed` section with the agent's final output (50 KB cap; full transcripts stay in the tool details). `isError` only when all fail.
+- **Live progress** — tool calls and output stream into the parent's TUI while the call is running; expand the result (`Ctrl+O`) after completion for the full view.
+- **Abort** kills the whole child process group (`SIGTERM`, then `SIGKILL` after 5 s).
 
-- **Parallel, blocking** — up to 8 agents per call, at most 4 running at once; the tool returns when all finish. Each result is a `### [name] completed/failed` section with the agent's final output (capped at 50 KB per agent; the full transcript stays in the tool details).
-- **Failures don't cancel siblings** — every agent runs to completion; per-agent status is reported. The tool marks `isError` only when *all* agents failed.
-- **Live progress** — sub-agent tool calls and output stream into the parent's TUI while the call is running; after it finishes, expand the result (`Ctrl+O`) for the full view.
-- **Isolated context** — each sub-agent is a separate `pi -p --no-session` process with its own context window; it shares the parent's working directory and project context.
-- **Abort** — interrupting the parent kills sub-agents (`SIGTERM`, then `SIGKILL` after 5 s).
+## Details panel (`alt+a`)
 
-## Details panel (alt+a)
-
-Press `alt+a` any time to open a full-height right column showing the latest `spawn_agents` call:
-
-- One tab per sub-agent (`←`/`→` or `1`-`8` to switch), labeled with name and live status (⏳/✓/✗).
-- Each tab is the agent's **full timeline** from task to current state: tool calls, tool-result previews (first 10 lines, dimmed), assistant output rendered as markdown, usage stats. Thinking blocks are not shown.
-- Scrolls like a terminal: `↑/↓`, `PgUp/PgDn`, `Home`/`g`, `End`/`G`, plus mouse wheel — pinned to the bottom while following new output; scrolling up pauses the follow, `End` resumes it.
-- Live-updates while agents run; `Esc` closes. Shows the most recent call only — scroll the transcript (`Ctrl+O`) for older ones.
-
-Two platform limits, honestly stated:
-
-- The panel is an **overlay**, not a true layout split: it covers the right half of the screen, the main transcript is not reflowed around it. A persistent split-pane API does not exist in pi's extension surface today.
-- **Mouse wheel only works when pi runs `--tui-mode fullscreen`** — the only mode where pi enables terminal mouse reporting, so the only mode where wheel events reach the panel. In regular mode, use the keyboard.
+- One tab per sub-agent (`←`/`→` or `1`-`8`; the tab bar compacts automatically on narrow panels), labeled with name and live status (⏳/✓/✗).
+- Each tab is the agent's full timeline: task, tool calls, tool-result previews (first 10 lines), assistant output rendered as markdown, usage. Thinking is not shown.
+- Terminal-style scrolling: `↑/↓`, `PgUp/PgDn`, `Home`/`g`, `End`/`G`, mouse wheel — pinned to the bottom while following new output, scrolling up pauses, `End` resumes. `Esc` closes.
+- Shows the latest call only. Two platform limits: it is an overlay (the transcript is covered, not reflowed), and mouse wheel works only under `--tui-mode fullscreen` — the only mode where pi enables terminal mouse reporting.
 
 ## No nesting
 
-Two layers keep sub-agents from spawning their own sub-agents: children run with `PI_SUBAGENTS_CHILD=1` in their environment (the extension skips tool registration when it sees it), and they are launched with `--exclude-tools spawn_agents` as a backstop. Sub-agents keep every other installed extension available.
-
-This is a guard, not a sandbox: a sub-agent with `bash` access can start arbitrary processes and could work around both layers (e.g. `env -u PI_SUBAGENTS_CHILD pi ...`). If you need hard isolation, restrict the agent's `tools` or run inside a container.
-
-Side effect: if you export `PI_SUBAGENTS_CHILD=1` in your own shell, `spawn_agents` will not appear in your sessions.
-
-## Differences from the official example
-
-- Agents are defined inline per invocation — no `~/.pi/agent/agents/*.md` discovery, no project-scope agents or trust prompts.
-- One mode: an array of specs. The official single/parallel/chain modes are gone (chain = orchestration).
-- Nesting is prevented (the official example allows it).
+Children run with `PI_SUBAGENTS_CHILD=1` (the extension skips tool registration when it sees it) and are launched with `--exclude-tools spawn_agents` as a backstop. This is a guard, not a sandbox: a sub-agent with `bash` can still start arbitrary processes and work around both layers (e.g. `env -u PI_SUBAGENTS_CHILD pi ...`) — use `tools` restrictions or a container for hard isolation. Side effect: exporting `PI_SUBAGENTS_CHILD=1` in your own shell hides `spawn_agents` from your sessions.
