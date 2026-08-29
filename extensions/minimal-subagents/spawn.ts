@@ -91,7 +91,7 @@ export function truncateParallelOutput(output: string): string {
 	while (Buffer.byteLength(truncated, "utf8") > PER_TASK_OUTPUT_CAP) {
 		truncated = truncated.slice(0, -1);
 	}
-	return `${truncated}\n\n[Output truncated: ${byteLength - Buffer.byteLength(truncated, "utf8")} bytes omitted. Full output preserved in tool details.]`;
+	return `${truncated}\n\n[Output truncated at 50 KB]`;
 }
 
 export async function mapWithConcurrencyLimit<TIn, TOut>(

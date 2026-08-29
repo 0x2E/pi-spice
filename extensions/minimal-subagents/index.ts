@@ -36,7 +36,12 @@ const MAX_CONCURRENCY = 4;
 const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 
 const AgentSpecSchema = Type.Object({
-	name: Type.Optional(Type.String({ description: "Display label for this agent (results only). Default: agent-<index>" })),
+	name: Type.Optional(
+		Type.String({
+			description:
+				'Heading for this agent result section ("### [name]"). Prefer a short role name like "scout" over agent-1.',
+		}),
+	),
 	systemPrompt: Type.Optional(
 		Type.String({
 			description:
@@ -63,7 +68,7 @@ const SpawnAgentsParams = Type.Object({
 	agents: Type.Array(AgentSpecSchema, {
 		minItems: 1,
 		maxItems: MAX_AGENTS,
-		description: `Agents to create and run in parallel (1-${MAX_AGENTS}). A single task is an array of one. All agents run concurrently; the tool returns when every agent finished.`,
+		description: `Agents to create and run (1-${MAX_AGENTS}; at most ${MAX_CONCURRENCY} run at a time). A single task is an array of one. Blocks until every agent finishes.`,
 	}),
 });
 
@@ -80,9 +85,13 @@ export default function (pi: ExtensionAPI) {
 		description: [
 			"Create sub-agents dynamically and run them in parallel, each in an isolated pi process.",
 			"Each agent is defined inline: systemPrompt (role/constraints) + task (assignment), with optional model, thinking level and tool allowlist; unset fields inherit the parent session.",
-			"Blocks until all agents finish, then returns each agent's final output.",
+			"Blocks until all agents finish, then returns each agent's final output under ### [name] headings.",
 			"The parent's working directory and project context (AGENTS.md) are shared; agents cannot spawn further sub-agents.",
 		].join(" "),
+		promptGuidelines: [
+			"spawn_agents returns only each agent's final text under ### [name] headings; agents' intermediate steps stay hidden, so ask agents to put key findings in their final answer.",
+			"spawn_agents agents run isolated from each other; one failing does not stop the others, and the tool result reports every agent's status.",
+		],
 		parameters: SpawnAgentsParams,
 
 		async execute(_toolCallId, params, signal, onUpdate, ctx) {
@@ -130,39 +139,57 @@ export default function (pi: ExtensionAPI) {
 			};
 
 			const results = await mapWithConcurrencyLimit(params.agents, MAX_CONCURRENCY, async (spec, index) => {
-				const result = await runSpec(
-					ctx.cwd,
-					dispatchDefaults,
-					spec,
-					allResults[index].name,
-					signal,
-					(partial) => {
-						if (partial.details?.results[0]) {
-							allResults[index] = partial.details.results[0];
-							emitParallelUpdate();
-						}
-					},
-					makeDetails,
-				);
-				allResults[index] = result;
-				emitParallelUpdate();
-				return result;
+				// On abort, return what exists instead of throwing finished work away.
+				const abortPlaceholder = (): SingleResult => {
+					const partial = allResults[index];
+					partial.exitCode = 1;
+					partial.stopReason = "aborted";
+					return partial;
+				};
+				if (signal?.aborted) return abortPlaceholder();
+				try {
+					const result = await runSpec(
+						ctx.cwd,
+						dispatchDefaults,
+						spec,
+						allResults[index].name,
+						signal,
+						(partial) => {
+							if (partial.details?.results[0]) {
+								allResults[index] = partial.details.results[0];
+								emitParallelUpdate();
+							}
+						},
+						makeDetails,
+					);
+					allResults[index] = result;
+					emitParallelUpdate();
+					return result;
+				} catch (err) {
+					if (signal?.aborted) return abortPlaceholder();
+					throw err;
+				}
 			});
 
 			const successCount = results.filter((r) => !isFailedResult(r)).length;
+			const aborted = signal?.aborted === true;
 			setPanelDetails(makeDetails(results));
 			const summaries = results.map((r) => {
 				const output = truncateParallelOutput(getResultOutput(r));
 				const status = isFailedResult(r)
 					? `failed${r.stopReason && r.stopReason !== "end" ? ` (${r.stopReason})` : ""}`
 					: "completed";
-				return `### [${r.name}] ${status}\n\n${output}`;
+				const usage =
+					r.usage.turns > 0 || r.usage.cost > 0
+						? `\n\n(${r.usage.turns} turns, $${r.usage.cost.toFixed(4)})`
+						: "";
+				return `### [${r.name}] ${status}\n\n${output}${usage}`;
 			});
 			return {
 				content: [
 					{
 						type: "text",
-						text: `${successCount}/${results.length} succeeded\n\n${summaries.join("\n\n---\n\n")}`,
+						text: `${successCount}/${results.length} succeeded${aborted ? " before abort" : ""}\n\n${summaries.join("\n\n---\n\n")}`,
 					},
 				],
 				details: makeDetails(results),

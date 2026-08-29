@@ -24,8 +24,8 @@ Quick test from this repo: `pi -e ./extensions/minimal-subagents`
 | `name` | — | `agent-<index>` |
 
 - **Failures don't cancel siblings** — every agent runs to completion; each result is a `### [name] completed/failed` section with the agent's final output (50 KB cap; full transcripts stay in the tool details). `isError` only when all fail.
-- **Live progress** — tool calls and output stream into the parent's TUI while the call is running; expand the result (`Ctrl+O`) after completion for the full view.
-- **Abort** kills the whole child process group (`SIGTERM`, then `SIGKILL` after 5 s).
+- **Live progress** — a one-line-per-agent scoreboard in the transcript (status, turns, latest activity); `alt+a` for the live detail panel, `Ctrl+O` after completion for the full archive.
+- **Abort** returns partial results — finished agents keep their output, the rest are marked `aborted`; the whole child process group is killed (`SIGTERM`, then `SIGKILL` after 5 s).
 
 ## Details panel (`alt+a`)
 
