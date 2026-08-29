@@ -2,8 +2,7 @@ name: Publish
 
 on:
   push:
-    tags: ['v*']
-  workflow_dispatch:
+    tags: ['v[0-9]*']
 
 permissions:
   contents: write # create GitHub releases
@@ -17,15 +16,25 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0 # full history: verify the tag descends from main
+          persist-credentials: false # nothing here needs git credentials
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
 
+      - name: Verify tag descends from main
+        run: |
+          git fetch origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::tag ${GITHUB_REF_NAME} is not on main; changes must land via PR first"
+            exit 1
+          fi
+
       - name: Verify tag matches root version
-        if: github.ref_type == 'tag'
         run: |
           tag_version="${GITHUB_REF_NAME#v}"
           root_version=$(node -p "require('./package.json').version")
@@ -46,18 +55,23 @@ jobs:
             [ -f "$pkg" ] || { echo "skip $dir: no package.json"; continue; }
             name=$(node -p "require('./${pkg}').name")
             version=$(node -p "require('./${pkg}').version")
-            if npm view "$name@$version" version >/dev/null 2>&1; then
+            if npm view "$name@$version" version >/dev/null 2>/tmp/npm-view.err; then
               echo "skip $name@$version (already published)"
-            else
+            elif grep -q E404 /tmp/npm-view.err; then
               echo "publish $name@$version"
-              (cd "$dir" && npm publish --access public --provenance)
+              (cd "$dir" && npm publish --access public --provenance --ignore-scripts)
               published="$published $name@$version"
+            else
+              cat /tmp/npm-view.err
+              echo "::error::npm view failed for $name@$version (not a 404); aborting"
+              exit 1
             fi
           done
           echo "published:$published"
 
       - name: Create GitHub release
-        if: github.ref_type == 'tag'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626b0e65 # v2
         with:
           generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
