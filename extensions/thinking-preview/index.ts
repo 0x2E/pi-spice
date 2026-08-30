@@ -4,18 +4,21 @@
  * pi streams reasoning tokens in full, which can flood the transcript on long
  * thinking turns. This extension rewrites the *display* of every thinking block
  * (via a Markdown transformer — display-only; the session and model context are
- * untouched) into a fixed-height preview:
+ * untouched) into a three-line preview:
  *
  *   ✻ thinking · 142 lines · alt+t to expand
  *   <second-to-last line of thinking>
  *   <last line of thinking>
  *
  * The preview refreshes on every streaming token, so the block doubles as a
- * progress indicator. Preview content is plain text: Markdown syntax
- * characters are escaped and rendered verbatim, and each line is hard-sliced
- * to the available width (width-aware for CJK) so the block never grows.
- * All three lines render as a blockquote, giving the block a `│ ` left bar
- * and its own quote color — visually distinct from plain thinking text.
+ * progress indicator. Preview content is plain text: Markdown syntax characters
+ * are escaped and rendered verbatim, and each preview line is hard-clipped to
+ * the available terminal width — by plain character count, with no per-charset
+ * width tables. Wide characters (CJK, emoji) can therefore render up to twice
+ * the budget and wrap an occasional extra row; that slight height jitter is
+ * accepted as the price of simplicity. All three lines render as a blockquote,
+ * giving the block a `│ ` left bar and its own quote color — visually distinct
+ * from plain thinking text.
  *
  * `alt+t` (or `/thinking-preview`) toggles all thinking blocks between preview
  * and full text; toggling re-renders history too. Restart resets to the
@@ -35,6 +38,9 @@ const PREVIEW_LINES = 2;
 /** Hint shown in the status line; must match the registered shortcut. */
 const TOGGLE_KEY = "alt+t";
 
+/** Columns consumed by the blockquote left bar (`│ `) framing each line. */
+const QUOTE_BAR_WIDTH = 2;
+
 /** Sticky preview/full-text switch. Resets to preview on restart. */
 let expanded = false;
 
@@ -45,74 +51,23 @@ let expanded = false;
  */
 const ESCAPE_CLASS = /[\\`*_{}[\]()<>#+\-!|~&=.:\/\\@]/g;
 
-/** Columns consumed by the blockquote left bar (`│ `) framing each line. */
-const QUOTE_BAR_WIDTH = 2;
-
 /** Escape Markdown syntax so text renders verbatim. Newlines pass through. */
 export function escapeMarkdown(text: string): string {
 	return text.replace(ESCAPE_CLASS, (c) => `\\${c}`);
 }
 
-/** Terminal column width of a code point: 0 for joiners/variants, 2 for wide, else 1. */
-function charWidth(cp: number): number {
-	if (cp === 0x200d || cp === 0xfe0f) return 0; // ZWJ / variation selector-16
-	return (
-		(cp >= 0x1100 && cp <= 0x115f) || // Hangul Jamo
-		(cp >= 0x2e80 && cp <= 0xa4cf) || // CJK radicals … Yi
-		(cp >= 0xac00 && cp <= 0xd7a3) || // Hangul syllables
-		(cp >= 0xf900 && cp <= 0xfaff) || // CJK compatibility ideographs
-		(cp >= 0xfe30 && cp <= 0xfe4f) || // CJK compatibility forms
-		(cp >= 0xff00 && cp <= 0xff60) || // fullwidth forms
-		(cp >= 0xffe0 && cp <= 0xffe6) ||
-		(cp >= 0x2600 && cp <= 0x27bf) || // BMP symbols / emoji (⚡✨…)
-		(cp >= 0x2b00 && cp <= 0x2bff) || // arrows / stars (⭐…)
-		(cp >= 0x1f000 && cp <= 0x1faff) || // emoji / pictographs (rocket 🚀, cards, …)
-		(cp >= 0x20000 && cp <= 0x3fffd) // CJK extension B+
-			? 2
-			: 1
-	);
-}
-
-/** Hard-slice a line to `width` terminal columns, walking code points. */
-export function sliceToWidth(line: string, width: number): string {
-	// Abnormal budgets (0/NaN): return the line untouched rather than empty —
-	// the blockquote renderer wraps border-aware, so an overlong line degrades
-	// gracefully instead of vanishing.
-	if (!Number.isFinite(width) || width <= 0) return line;
-	let used = 0;
-	let out = "";
-	for (const ch of line) {
-		const w = charWidth(ch.codePointAt(0)!);
-		if (used + w > width) break;
-		out += ch;
-		used += w;
-	}
-	return out;
-}
-
-/** Last `count` non-empty logical lines (oldest → newest), via backward scan. */
-export function tailLines(text: string, count: number): string[] {
-	const out: string[] = [];
-	let end = text.length;
-	while (out.length < count && end > 0) {
-		const start = text.lastIndexOf("\n", end - 1) + 1;
-		const line = text.slice(start, end).trim();
-		if (line) out.push(line);
-		if (start === 0) break;
-		end = start - 1;
-	}
-	return out.reverse();
-}
-
-/** Number of non-empty logical lines, for the status line. */
-function countNonEmptyLines(text: string): number {
-	let n = 0;
-	for (const line of text.split("\n")) if (line.trim()) n++;
-	return n;
+/**
+ * Hard-clip a line to at most `maxChars` characters — plain character count,
+ * no per-charset width tables. A line of wide characters (CJK, emoji) can thus
+ * render up to 2× the column budget and wrap an extra row; accepted jitter.
+ */
+export function clipLine(line: string, maxChars: number): string {
+	if (!Number.isFinite(maxChars) || maxChars <= 0) return line;
+	return [...line].slice(0, maxChars).join("");
 }
 
 /** Flip the display mode and force every message component to re-render. */
-function toggle(ctx: ExtensionContext): void {
+async function toggle(ctx: ExtensionContext): Promise<void> {
 	expanded = !expanded;
 	ctx.ui.notify(expanded ? "Thinking: full text" : "Thinking: preview", "info");
 	try {
@@ -133,11 +88,14 @@ export default function (pi: ExtensionAPI) {
 		const text = markdown.trim();
 		if (!text) return markdown;
 
-		const lineCount = countNonEmptyLines(text);
+		// Simple by design: count lines as-is, show the last two non-empty lines,
+		// each clipped to the terminal width by plain character count — no
+		// per-charset width math, so wide characters may wrap an extra row.
+		const lines = text.split("\n");
 		const action = expanded ? "to collapse" : "to expand";
-		const status = `✻ thinking · ${lineCount} line${lineCount === 1 ? "" : "s"} · ${TOGGLE_KEY} ${action}`;
-		const width = Math.max(availableWidth - QUOTE_BAR_WIDTH, 20);
-		const statusLine = sliceToWidth(status, width);
+		const status = `✻ thinking · ${lines.length} line${lines.length === 1 ? "" : "s"} · ${TOGGLE_KEY} ${action}`;
+		const width = availableWidth - QUOTE_BAR_WIDTH;
+		const statusLine = clipLine(status, width);
 
 		// Backslash line breaks keep consecutive lines inside one blockquote
 		// from gluing into a single wrapped paragraph (CommonMark soft break).
@@ -151,7 +109,10 @@ export default function (pi: ExtensionAPI) {
 			return `> ${statusLine}\\\n${body}`;
 		}
 
-		const tail = tailLines(text, PREVIEW_LINES).map((line) => escapeMarkdown(sliceToWidth(line, width)));
+		const tail = lines
+			.filter((line) => line.trim())
+			.slice(-PREVIEW_LINES)
+			.map((line) => escapeMarkdown(clipLine(line, width)));
 		return [`> ${statusLine}\\`, ...tail.map((line, i) => `> ${line}${i < tail.length - 1 ? "\\" : ""}`)].join("\n");
 	});
 
