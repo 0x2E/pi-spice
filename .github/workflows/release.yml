@@ -1,0 +1,44 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: # retry after a failed publish, or nudge the Version PR
+
+permissions:
+  contents: write # Version PR, per-package tags, GitHub releases
+  pull-requests: write # Version PR
+  id-token: write # npm provenance
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0 # changesets diffs against the base branch
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      # the action resolves @changesets/cli locally and runs `changeset version`
+      # / `changeset publish` itself (passing CHANGESETS_OUTPUT so it can push
+      # tags and create GitHub releases)
+      - run: npm ci
+
+      # Pending changesets -> update the "Version Packages" PR.
+      # No pending changesets -> run the publish script (npm run release), then
+      # push @pi-spice/<pkg>@<version> tags and create GitHub releases.
+      - uses: changesets/action@8488615a623b1b9c987934bb89eae8af6a946ac1 # v2.1.1
+        with:
+          publish-script: npm run release
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: "true"
+          NPM_CONFIG_IGNORE_SCRIPTS: "true" # extensions must not need lifecycle scripts

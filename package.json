@@ -1,18 +1,27 @@
 {
-  "name": "@pi-spice/all",
-  "version": "0.2.0",
-  "description": "All pi-spice extensions in one package",
-  "keywords": ["pi-package"],
+  "name": "@pi-spice/monorepo",
+  "version": "0.0.0",
+  "private": true,
+  "description": "pi-spice monorepo container — extensions live in extensions/, the published meta-package in packages/all/",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/0x2E/pi-spice.git"
   },
-  "files": ["extensions"],
-  "publishConfig": {
-    "access": "public"
+  "workspaces": [
+    "extensions/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "release": "cp -a extensions packages/all/extensions && changeset publish && rm -rf packages/all/extensions"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^3.0.1",
+    "@changesets/parse": "^1.0.0"
   },
   "pi": {
-    "extensions": ["extensions/*/index.ts"]
+    "extensions": [
+      "extensions/*/index.ts"
+    ]
   }
 }

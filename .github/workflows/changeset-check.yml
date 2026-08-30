@@ -1,0 +1,34 @@
+name: Changeset check
+
+# A PR that changes extensions/** must add a changeset declaring every touched
+# extension plus @pi-spice/all — otherwise the change ships undocumented and
+# unversioned (or silently rides along inside the next release).
+on:
+  pull_request:
+    paths:
+      - "extensions/**"
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    # the bot's own Version PR (branch changeset-release/*) bumps
+    # extensions/*/package.json without adding changesets
+    if: >-
+      github.event.pull_request.user.login != 'github-actions[bot]' &&
+      !startsWith(github.head_ref, 'changeset-release/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+
+      - run: npm ci
+
+      - name: Extension changes require a changeset declaring them and @pi-spice/all
+        run: node scripts/check-changesets.mjs "origin/${{ github.base_ref }}"

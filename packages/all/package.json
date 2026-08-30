@@ -1,0 +1,25 @@
+{
+  "name": "@pi-spice/all",
+  "version": "0.2.0",
+  "description": "All pi-spice extensions in one package",
+  "keywords": [
+    "pi-package"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/0x2E/pi-spice.git",
+    "directory": "packages/all"
+  },
+  "files": [
+    "extensions"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "pi": {
+    "extensions": [
+      "extensions/*/index.ts"
+    ]
+  }
+}
