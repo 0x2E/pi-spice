@@ -4,6 +4,9 @@
  * Opened with alt+a (registered in index.ts), closed with alt+a or Esc —
  * while the panel is focused the host routes all input here, so the open
  * shortcut never fires; the panel must recognize alt+a itself to toggle.
+ * With no spawn_agents data yet, the shortcut shows a notify message
+ * instead of opening an empty overlay (guarded in index.ts via
+ * hasPanelDetails).
  * Shows the latest spawn_agents call: one tab per sub-agent, a full scrollable
  * timeline per tab (task, tool calls, tool-result previews, assistant output
  * rendered as markdown, usage), live-updating while agents run.
@@ -15,7 +18,7 @@
  * while the overlay is focused.
  */
 
-import { Markdown, matchesKey, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { Markdown, matchesKey, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import { type Message } from "@earendil-works/pi-ai";
 import { formatToolCall, formatUsageStats, type RenderTheme } from "./render.ts";
@@ -32,6 +35,11 @@ const listeners = new Set<() => void>();
 export function setPanelDetails(details: SubagentDetails): void {
 	currentDetails = details;
 	for (const listener of listeners) listener();
+}
+
+/** True once at least one spawn_agents result (even still running) exists. */
+export function hasPanelDetails(): boolean {
+	return currentDetails !== null && currentDetails.results.length > 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -189,6 +197,12 @@ class AgentPanel {
 		// A newer spawn_agents call may have fewer agents — clamp the tab.
 		this.activeTab = Math.min(this.activeTab, details.results.length - 1);
 
+		// Inner padding: 1 column each side and 1 blank line above/below the
+		// body, so content breathes away from the rules and panel edges. The
+		// rules span the full width; content wraps at width - 2.
+		const innerWidth = Math.max(10, width - 2);
+		const pad = (line: string) => (line.length === 0 ? "" : ` ${line}`);
+
 		// --- header: tab bar ------------------------------------------------
 		// Full labels (index + name + status) when they fit the panel width;
 		// otherwise degrade to compact slots (index + status) which always fit
@@ -202,35 +216,47 @@ class AgentPanel {
 			return `${i + 1} ${name} ${statusIcon(r, theme)}`;
 		});
 		const fullFits =
-			7 + fullLabels.reduce((sum, l) => sum + visibleWidth(l) + 2, 0) + (fullLabels.length - 1) <= width;
+			7 + fullLabels.reduce((sum, l) => sum + visibleWidth(l) + 2, 0) + (fullLabels.length - 1) <= innerWidth;
 		const tabs = fullFits
 			? renderSlots(fullLabels)
 			: renderSlots(details.results.map((r, i) => `${i + 1}${statusIcon(r, theme)}`));
-		const header = [theme.fg("toolTitle", theme.bold("agents ")) + tabs, theme.fg("muted", "─".repeat(width))];
+		const header = [pad(theme.fg("toolTitle", theme.bold("agents ")) + tabs), theme.fg("muted", "─".repeat(width))];
 
 		// --- body: windowed timeline ----------------------------------------
 		const rows = this.tui?.terminal?.rows ?? process.stdout.rows ?? 24;
-		const headerH = header.length; // tab bar + rule
-		const footerH = 2; // rule + status line
+		const headerH = header.length + 1; // blank pad + tab bar + rule
+		const footerH = 2 + 1; // rule + status line + blank pad above the rule
 		this.bodyHeight = Math.max(4, rows - headerH - footerH);
 
-		const lines = buildTimeline(details.results[this.activeTab], theme, width);
+		const lines = buildTimeline(details.results[this.activeTab], theme, innerWidth);
 		this.lineCount = lines.length;
 
 		const maxOffset = Math.max(0, this.lineCount - this.bodyHeight);
 		if (this.follow) this.offset = maxOffset;
 		this.offset = Math.min(Math.max(0, this.offset), maxOffset);
-		const body = lines.slice(this.offset, this.offset + this.bodyHeight);
+		const body = lines.slice(this.offset, this.offset + this.bodyHeight).map(pad);
 		while (body.length < this.bodyHeight) body.push(""); // stable panel height
 
 		// --- footer: scroll position + hints ---------------------------------
 		const pos = this.lineCount > 0 ? `${this.offset + 1}-${Math.min(this.offset + this.bodyHeight, this.lineCount)}/${this.lineCount}` : "0";
 		const mode = this.follow ? "following" : "paused";
-		const footer =
-			theme.fg("dim", `${pos} ${mode}`) +
-			theme.fg("muted", " · ←/→ tab · ↑/↓ wheel scroll · End follow · alt+a/Esc close");
+		const statusText = theme.fg("dim", `${pos} ${mode}`);
+		// Hint set degrades as the panel narrows; truncate is only a backstop.
+		const hintVariants = [
+			" · ←/→ tab · ↑/↓ scroll · End follow · alt+a/Esc close",
+			" · ←/→ tab · End follow · alt+a/Esc close",
+			" · alt+a/Esc close",
+		];
+		let hints = "";
+		for (const hint of hintVariants) {
+			if (visibleWidth(statusText) + hint.length <= innerWidth) {
+				hints = theme.fg("muted", hint);
+				break;
+			}
+		}
+		const footer = truncateToWidth(pad(statusText + hints), width);
 
-		return [...header, ...body, theme.fg("muted", "─".repeat(width)), footer];
+		return ["", ...header, ...body, "", theme.fg("muted", "─".repeat(width)), footer];
 	}
 
 	handleInput(data: string): void {

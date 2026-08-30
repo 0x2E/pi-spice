@@ -32,6 +32,7 @@ Quick test from this repo: `pi -e ./extensions/minimal-subagents`
 - One tab per sub-agent (`←`/`→` or `1`-`8`; the tab bar compacts automatically on narrow panels), labeled with name and live status (⏳/✓/✗).
 - Each tab is the agent's full timeline: task, tool calls, tool-result previews (first 10 lines), assistant output rendered as markdown, usage. Thinking is not shown.
 - Terminal-style scrolling: `↑/↓`, `PgUp/PgDn`, `Home`/`g`, `End`/`G`, mouse wheel — pinned to the bottom while following new output, scrolling up pauses, `End` resumes. `alt+a` toggles (same key opens and closes); `Esc` also closes.
+- Pressing `alt+a` before any `spawn_agents` run shows pi's notify message above the input instead of opening an empty panel.
 - Shows the latest call only. Two platform limits: it is an overlay (the transcript is covered, not reflowed), and mouse wheel works only under `--tui-mode fullscreen` — the only mode where pi enables terminal mouse reporting.
 
 ## No nesting

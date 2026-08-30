@@ -28,7 +28,7 @@ import {
 	type SubagentDetails,
 } from "./spawn.ts";
 import { renderSpawnCall, renderSpawnResult } from "./render.ts";
-import { openAgentPanel, setPanelDetails } from "./panel.ts";
+import { hasPanelDetails, openAgentPanel, setPanelDetails } from "./panel.ts";
 
 const MAX_AGENTS = 8;
 const MAX_CONCURRENCY = 4;
@@ -203,6 +203,14 @@ export default function (pi: ExtensionAPI) {
 
 	pi.registerShortcut("alt+a", {
 		description: "Toggle the sub-agent details panel (tabs per agent, full timeline); alt+a or Esc closes it",
-		handler: (ctx) => openAgentPanel(ctx),
+		handler: (ctx) => {
+			// No run yet → pi's notify message, not an empty overlay stuck in the
+			// corner.
+			if (!hasPanelDetails()) {
+				ctx.ui.notify("No sub-agent data yet — run spawn_agents first", "info");
+				return;
+			}
+			openAgentPanel(ctx);
+		},
 	});
 }
