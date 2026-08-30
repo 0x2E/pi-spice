@@ -1,6 +1,6 @@
 {
   "name": "@pi-spice/all",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "All pi-spice extensions in one package",
   "keywords": [
     "pi-package"
