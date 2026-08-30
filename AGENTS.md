@@ -11,11 +11,28 @@ pi-spice: a monorepo of pi extensions published as individual npm packages. Each
   - `package.json` — copy from an existing extension and name it `@pi-spice/<name>`. `keywords` must include `pi-package` (gallery discoverability). Every `@earendil-works/*` / `typebox` import goes in `peerDependencies` with a `"*"` range — pi bundles these, so they must never appear in `dependencies`.
   - `README.md` — what npm shows: purpose, install command, how it works. Title is the package name (`# @pi-spice/<name>`).
 
-- Adding an extension needs no wiring: the root `@pi-spice/all` meta-package picks up `extensions/*/index.ts`, and publishing discovers `extensions/*/package.json` automatically.
+- Adding an extension needs no wiring: `extensions/*/index.ts` is picked up both by local dev (root `pi.extensions` glob) and by the meta-package publish step (the Release workflow copies `extensions/` into `packages/all/`).
 
 - New extensions get one row in the root `README.md` extension table — that table is the single source of truth for the list.
 
-- Publishing is automated by `.github/workflows/publish.yml`, which publishes every package whose version is not yet on npm — bump the changed packages' `version` in the same commit as the change (release tags are `v<root version>`). Publish runs `--ignore-scripts`: extensions must not need lifecycle scripts.
+- The repo root is a private container (never published). The published meta-package `@pi-spice/all` lives in `packages/all/`; at publish time the Release workflow copies `extensions/` into it (npm `files` cannot reach outside a package's own directory), so the meta-package always bundles the current extension sources. Local dev still loads from the repo root (`pi.extensions` globs `extensions/*/index.ts`).
+
+- Releasing is managed by [changesets](https://github.com/changesets/changesets). A PR that changes anything under `extensions/**` must add a `.changeset/<name>.md` declaring every touched extension and, on its own line, `@pi-spice/all` at the highest bumped level — the meta-package bundles all extensions, so it rides every release. CI (`.github/workflows/changeset-check.yml`) rejects PRs that skip this:
+
+  ```md
+  ---
+  "@pi-spice/minimal-subagents": minor
+  "@pi-spice/all": minor
+  ---
+
+  One-line description of the user-facing change.
+  ```
+
+- Merging PRs only accumulates changesets. `.github/workflows/release.yml` keeps a "Version Packages" PR open showing the batch; merging that PR bumps versions, writes CHANGELOGs, publishes everything not yet on npm, and tags `@pi-spice/<pkg>@<version>` per package. Batch releases by merging it late, or ship immediately by merging it right away.
+
+- New extensions start at version `0.0.0`; their first changeset decides the initial published version (`minor` → `0.1.0`).
+
+- Publish runs with `ignore-scripts`: extensions must not need lifecycle scripts.
 
 ## Verification
 

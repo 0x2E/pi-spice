@@ -1,0 +1,43 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: # retry after a failed publish, or nudge the Version PR
+
+permissions:
+  contents: write # Version PR, per-package tags
+  pull-requests: write # Version PR
+  id-token: write # npm provenance
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0 # changesets diffs against the base branch
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      # Pending changesets -> update the "Version Packages" PR.
+      # No pending changesets -> publish everything not yet on npm + tag.
+      # @pi-spice/all (packages/all) bundles the extensions/ sources, but npm
+      # `files` cannot reach outside its own directory — copy them in first.
+      - uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1.9.0
+        with:
+          version: npx changeset version
+          publish: cp -a extensions packages/all/extensions && npx changeset publish && rm -rf packages/all/extensions
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: "true"
+          NPM_CONFIG_IGNORE_SCRIPTS: "true" # extensions must not need lifecycle scripts
