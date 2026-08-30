@@ -22,7 +22,7 @@ pi-spice: a monorepo of pi extensions published as individual npm packages. Each
   One-line description of the user-facing change.
   ```
 
-- Adding an extension needs no wiring (the globs and the publish-time copy pick it up). New extensions start at version `0.0.0`; their first changeset decides the initial published version (`minor` → `0.1.0`). Add one row to the root `README.md` extension table — that table is the single source of truth for the list.
+- Adding an extension needs no wiring (the globs and the publish-time copy pick it up). New extensions start at version `0.0.0`; their first changeset decides the initial published version (`minor` → `0.1.0`). Add one item to the root `README.md` extension list — that list is the single source of truth.
 
 - At publish time the Release workflow copies `extensions/` into `packages/all/` (npm `files` cannot reach outside a package's own directory). A release is merging the bot's "Version Packages" PR — it bumps, writes CHANGELOGs, publishes, and tags `@pi-spice/<pkg>@<version>`; merge it late to batch. Feature PRs carry changesets; the Version PR alone edits version numbers.
 
