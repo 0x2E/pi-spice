@@ -1,10 +1,12 @@
 /**
  * panel.ts — sub-agent details panel (overlay) for minimal-subagents
  *
- * Opened with alt+a (registered in index.ts). Shows the latest spawn_agents
- * call: one tab per sub-agent, a full scrollable timeline per tab (task,
- * tool calls, tool-result previews, assistant output rendered as markdown,
- * usage), live-updating while agents run.
+ * Opened with alt+a (registered in index.ts), closed with alt+a or Esc —
+ * while the panel is focused the host routes all input here, so the open
+ * shortcut never fires; the panel must recognize alt+a itself to toggle.
+ * Shows the latest spawn_agents call: one tab per sub-agent, a full scrollable
+ * timeline per tab (task, tool calls, tool-result previews, assistant output
+ * rendered as markdown, usage), live-updating while agents run.
  *
  * Rendering is line-based: the timeline is flattened into styled lines and
  * windowed by a hand-rolled viewport (offset math) — the overlay contract is
@@ -13,7 +15,7 @@
  * while the overlay is focused.
  */
 
-import { Markdown, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { Markdown, matchesKey, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import { type Message } from "@earendil-works/pi-ai";
 import { formatToolCall, formatUsageStats, type RenderTheme } from "./render.ts";
@@ -39,7 +41,7 @@ export function setPanelDetails(details: SubagentDetails): void {
 let opening: Promise<unknown> | null = null;
 
 export function openAgentPanel(ctx: { ui: any; hasUI?: boolean }): void {
-	if (opening) return; // already open; Esc closes
+	if (opening) return; // already open; alt+a or Esc closes
 	if (ctx.hasUI === false) return;
 	opening = ctx.ui
 		.custom(
@@ -226,7 +228,7 @@ class AgentPanel {
 		const mode = this.follow ? "following" : "paused";
 		const footer =
 			theme.fg("dim", `${pos} ${mode}`) +
-			theme.fg("muted", " · ←/→ tab · ↑/↓ wheel scroll · End follow · Esc close");
+			theme.fg("muted", " · ←/→ tab · ↑/↓ wheel scroll · End follow · alt+a/Esc close");
 
 		return [...header, ...body, theme.fg("muted", "─".repeat(width)), footer];
 	}
@@ -241,6 +243,14 @@ class AgentPanel {
 	}
 
 	private handleInputInner(data: string): void {
+		// alt+a toggles: while we hold focus the host shortcut cannot fire, so
+		// the panel closes on the same key that opened it (matchesKey covers
+		// legacy ESC+a and kitty/CSI-u encodings alike).
+		if (matchesKey(data, "alt+a")) {
+			this.close();
+			return;
+		}
+
 		const details = currentDetails;
 		if (!details || details.results.length === 0) {
 			if (data === "\x1b") this.close();

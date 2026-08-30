@@ -202,7 +202,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.registerShortcut("alt+a", {
-		description: "Open the sub-agent details panel (tabs per agent, full timeline)",
+		description: "Toggle the sub-agent details panel (tabs per agent, full timeline); alt+a or Esc closes it",
 		handler: (ctx) => openAgentPanel(ctx),
 	});
 }
