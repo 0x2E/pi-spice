@@ -44,6 +44,7 @@ const changesetFiles = changed.filter(
 
 const errors = [];
 const declared = new Map(); // package name → changeset file declaring it
+const rank = { none: 0, patch: 1, minor: 2, major: 3 };
 
 for (const file of changesetFiles) {
   let releases;
@@ -54,8 +55,14 @@ for (const file of changesetFiles) {
     continue;
   }
   const names = releases.map((r) => r.name);
-  if (names.length > 0 && !names.includes(ALL)) {
+  const allLevel = releases.find((r) => r.name === ALL)?.type;
+  if (names.length > 0 && !allLevel) {
     errors.push(`${file}: declares [${names.join(", ")}] but omits ${ALL}`);
+  } else if (allLevel) {
+    const extHighest = Math.max(0, ...releases.filter((r) => r.name !== ALL).map((r) => rank[r.type] ?? 0));
+    if (rank[allLevel] < extHighest) {
+      errors.push(`${file}: ${ALL} is ${allLevel} but should match the highest extension bump (needs ${extHighest === 3 ? "major" : extHighest === 2 ? "minor" : "patch"})`);
+    }
   }
   for (const name of names) declared.set(name, file);
 }
