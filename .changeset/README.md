@@ -14,7 +14,8 @@ Every PR that changes anything under `extensions/**` must add one file here:
 Allow disabling tool result truncation.
 ```
 
-- Bump level is `patch`, `minor`, or major (omit the level entirely for major).
+- Bump level is `patch`, `minor`, or `major` (all written out explicitly; an
+  empty release type is a parse error).
 - Always include `@pi-spice/all` at the highest level used: the meta-package
   bundles every extension, so it must ride every release.
   `.github/workflows/changeset-check.yml` rejects PRs that skip either part.

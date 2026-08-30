@@ -1,6 +1,6 @@
 name: Changeset check
 
-# A PR that changes extensions/** must add a changeset declaring each touched
+# A PR that changes extensions/** must add a changeset declaring every touched
 # extension plus @pi-spice/all — otherwise the change ships undocumented and
 # unversioned (or silently rides along inside the next release).
 on:
@@ -13,41 +13,55 @@ permissions:
 
 jobs:
   check:
-    # the bot's own Version PR bumps extensions/*/package.json without adding changesets
-    if: github.event.pull_request.user.login != 'github-actions[bot]'
+    # the bot's own Version PR (branch changeset-release/*) bumps
+    # extensions/*/package.json without adding changesets
+    if: >-
+      github.event.pull_request.user.login != 'github-actions[bot]' &&
+      !startsWith(github.head_ref, 'changeset-release/')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
 
-      - name: Extension changes require a changeset with @pi-spice/all
+      - name: Extension changes require a changeset declaring them and @pi-spice/all
         run: |
           set -euo pipefail
           base="origin/${{ github.base_ref }}"
-          changed=$(git diff --name-only --diff-filter=ACMR "${base}...HEAD")
+          # ACMRD: count deletions too — removing a file under extensions/ must ship
+          changed=$(git diff --name-only --diff-filter=ACMRD "${base}...HEAD")
 
-          ext_changed=$(grep -E '^extensions/' <<<"$changed" || true)
+          ext_names=$(grep -E '^extensions/[^/]+/' <<<"$changed" | cut -d/ -f2 | sort -u || true)
           cs_added=$(grep -E '^\.changeset/[^/]+\.md$' <<<"$changed" | grep -vE '^\.changeset/README\.md$' || true)
 
-          if [ -z "$ext_changed" ]; then
+          if [ -z "$ext_names" ]; then
             echo "no extension changes in this PR"
             exit 0
           fi
 
           if [ -z "$cs_added" ]; then
-            echo "::error::this PR changes extensions/ but adds no changeset — add .changeset/<name>.md declaring each touched extension plus @pi-spice/all"
+            echo "::error::this PR changes extensions/ but adds no changeset — add .changeset/<name>.md declaring each touched extension (\"@pi-spice/<name>\": ...) plus @pi-spice/all"
             exit 1
           fi
 
           status=0
+          cs_frontmatter=""
           while IFS= read -r f; do
             [ -f "$f" ] || continue
-            frontmatter=$(awk '/^---$/{n++; next} n==1' "$f")
-            if grep -qE '^"@pi-spice/' <<<"$frontmatter" &&
-               ! grep -qE '^"@pi-spice/all":' <<<"$frontmatter"; then
-              echo "::error::$f bumps an extension but omits the @pi-spice/all entry"
+            fm=$(awk '/^---$/{n++; next} n==1' "$f")
+            if grep -qE '^"@pi-spice/' <<<"$fm" &&
+               ! grep -qE '^"@pi-spice/all":' <<<"$fm"; then
+              echo "::error::$f declares a package but omits the @pi-spice/all entry"
               status=1
             fi
+            cs_frontmatter+="$fm"$'\n'
           done <<<"$cs_added"
+
+          while IFS= read -r name; do
+            [ -n "$name" ] || continue
+            if ! grep -qE "^\"@pi-spice/${name}\":" <<<"$cs_frontmatter"; then
+              echo "::error::extension '$name' changed but no added changeset declares \"@pi-spice/${name}\":"
+              status=1
+            fi
+          done <<<"$ext_names"
           exit $status

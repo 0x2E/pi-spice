@@ -1,6 +1,6 @@
 {
   "$schema": "https://unpkg.com/@changesets/config@4.0.0/schema.json",
-  "changelog": ["@changesets/cli/changelog", { "repo": "0x2E/pi-spice" }],
+  "changelog": "@changesets/cli/changelog",
   "commit": false,
   "access": "public",
   "baseBranch": "origin/main"

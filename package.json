@@ -9,6 +9,9 @@
     "url": "git+https://github.com/0x2E/pi-spice.git"
   },
   "workspaces": ["extensions/*", "packages/*"],
+  "scripts": {
+    "release": "cp -a extensions packages/all/extensions && changeset publish && rm -rf packages/all/extensions"
+  },
   "devDependencies": {
     "@changesets/cli": "^3.0.1"
   },

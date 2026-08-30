@@ -36,5 +36,6 @@ pi-spice: a monorepo of pi extensions published as individual npm packages. Each
 
 ## Verification
 
-- Quick test: `pi -e ./extensions/<name>/`, or `pi -e .` to load every extension via the root meta-package.
+- Quick test: `pi -e ./extensions/<name>/`, or `pi -e .` to load every extension via the root `pi.extensions` glob (the root package is a private container, not the published meta-package).
 - Local install: `pi install ./extensions/<name>`.
+- One-time repo setting: Settings → Actions → General → Workflow permissions → "Allow GitHub Actions to create and approve pull requests" — required for the Version Packages PR bot.

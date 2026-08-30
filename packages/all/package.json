@@ -9,7 +9,7 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/0x2E/pi-spice.git",
-    "directory": "."
+    "directory": "packages/all"
   },
   "files": [
     "extensions"

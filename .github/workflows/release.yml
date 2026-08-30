@@ -6,7 +6,7 @@ on:
   workflow_dispatch: # retry after a failed publish, or nudge the Version PR
 
 permissions:
-  contents: write # Version PR, per-package tags
+  contents: write # Version PR, per-package tags, GitHub releases
   pull-requests: write # Version PR
   id-token: write # npm provenance
 
@@ -27,17 +27,18 @@ jobs:
           node-version: 22
           registry-url: https://registry.npmjs.org
 
+      # the action resolves @changesets/cli locally and runs `changeset version`
+      # / `changeset publish` itself (passing CHANGESETS_OUTPUT so it can push
+      # tags and create GitHub releases)
+      - run: npm ci
+
       # Pending changesets -> update the "Version Packages" PR.
-      # No pending changesets -> publish everything not yet on npm + tag.
-      # @pi-spice/all (packages/all) bundles the extensions/ sources, but npm
-      # `files` cannot reach outside its own directory — copy them in first.
-      - uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1.9.0
+      # No pending changesets -> run the publish script (npm run release), then
+      # push @pi-spice/<pkg>@<version> tags and create GitHub releases.
+      - uses: changesets/action@8488615a623b1b9c987934bb89eae8af6a946ac1 # v2.1.1
         with:
-          version: npx changeset version
-          publish: cp -a extensions packages/all/extensions && npx changeset publish && rm -rf packages/all/extensions
+          publish-script: npm run release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           NPM_CONFIG_PROVENANCE: "true"
           NPM_CONFIG_IGNORE_SCRIPTS: "true" # extensions must not need lifecycle scripts
