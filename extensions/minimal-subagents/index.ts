@@ -28,7 +28,7 @@ import {
 	type SubagentDetails,
 } from "./spawn.ts";
 import { renderSpawnCall, renderSpawnResult } from "./render.ts";
-import { openAgentPanel, setPanelDetails } from "./panel.ts";
+import { hasPanelDetails, openAgentPanel, setPanelDetails } from "./panel.ts";
 
 const MAX_AGENTS = 8;
 const MAX_CONCURRENCY = 4;
@@ -138,6 +138,13 @@ export default function (pi: ExtensionAPI) {
 				}
 			};
 
+			// Seed the panel the moment the tool starts: alt+a can then open it and
+			// show "running" placeholders. Without this, the panel would stay
+			// "no data" until the first child event arrives — child boot plus the
+			// child's first model turn can take 5-20s, and interrupting (or just
+			// peeking) inside that window would claim there is nothing to show.
+			emitParallelUpdate();
+
 			const results = await mapWithConcurrencyLimit(params.agents, MAX_CONCURRENCY, async (spec, index) => {
 				// On abort, return what exists instead of throwing finished work away.
 				const abortPlaceholder = (): SingleResult => {
@@ -202,7 +209,15 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.registerShortcut("alt+a", {
-		description: "Open the sub-agent details panel (tabs per agent, full timeline)",
-		handler: (ctx) => openAgentPanel(ctx),
+		description: "Toggle the sub-agent details panel (tabs per agent, full timeline); alt+a or Esc closes it",
+		handler: (ctx) => {
+			// No run yet → pi's notify message, not an empty overlay stuck in the
+			// corner.
+			if (!hasPanelDetails()) {
+				ctx.ui.notify("No sub-agent data yet — run spawn_agents first", "info");
+				return;
+			}
+			openAgentPanel(ctx);
+		},
 	});
 }
