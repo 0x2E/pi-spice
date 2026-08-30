@@ -1,6 +1,6 @@
 {
   "name": "@pi-spice/thinking-preview",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Collapse streaming thinking blocks into a compact live preview; alt+t toggles full text",
   "keywords": ["pi-package"],
   "license": "MIT",
