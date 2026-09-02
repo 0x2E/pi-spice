@@ -1,6 +1,6 @@
 # @pi-spice/prefer-modern-cli
 
-Prefers `rg`/`fd` over `grep`/`find` when the model writes search commands in bash. Prompt-only — nothing is blocked or rewritten.
+Prefers modern CLI tools such as `rg` and `fd`. Prompt-only — nothing is blocked or rewritten.
 
 ## Install
 
