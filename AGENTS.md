@@ -9,7 +9,7 @@ pi-spice: a monorepo of pi extensions published as individual npm packages. Each
 - Each extension is a directory `extensions/<name>/` containing at least these three files (extra modules are fine, imported relatively from the entry):
   - `index.ts` — the extension entry; the name is fixed by both `pi.extensions` globs. Starts with a header comment stating what it does, why, and the install command. See `extensions/prefer-modern-cli/index.ts` for the style.
   - `package.json` — copy from an existing extension and name it `@pi-spice/<name>`. `keywords` must include `pi-package` (gallery discoverability). Every `@earendil-works/*` / `typebox` import goes in `peerDependencies` with a `"*"` range — pi bundles these itself.
-  - `README.md` — what npm shows: purpose, install command, how it works. Title is the package name (`# @pi-spice/<name>`).
+  - `README.md` — what npm shows: one sentence of purpose, the install command, and each user-visible effect with one example. Implementation detail and rationale live in the code. Title is the package name (`# @pi-spice/<name>`).
 
 - The repo root is a private container (never published); the published meta-package `@pi-spice/all` lives in `packages/all/`. Because it bundles every extension, it rides every release: a PR touching anything under `extensions/**` adds a `.changeset/<name>.md` declaring every touched extension plus `@pi-spice/all` at the highest bumped level (CI in `.github/workflows/changeset-check.yml` rejects PRs that skip this):
 
