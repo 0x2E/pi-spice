@@ -1,16 +1,14 @@
 /**
- * prefer-modern-cli — nudge the model to use modern CLI tools (`rg`, `fd`) in bash commands
+ * prefer-modern-cli — prefer `rg`/`fd` over `grep`/`find` in hand-written bash search commands
  *
- * Detects once per session whether each tool is actually runnable, then:
- * - appends a one-line preference per available tool to the system prompt
- *   (only when the `bash` tool is active — otherwise the choice never comes up);
- * - fires a single notification when the session starts: a one-line status
- *   badge with the detection result (missing tools included). The state never
- *   changes mid-session, so a one-shot notice is all it deserves.
+ * Probes each tool (managed `~/.pi/agent/bin`, then PATH) once per instance.
+ * Available tools get one preference line in the system prompt when bash is
+ * active. Session start fires a one-line availability badge. Missing tools
+ * are skipped — a preference for a missing binary would only fail.
  *
- * pi's built-in `grep`/`find` tools are already ripgrep/fd-backed and need no
- * replacement; this extension covers the gap where the model hand-writes a
- * search command inside a bash invocation. Nothing is blocked or rewritten.
+ * pi's built-in `grep`/`find` tools are already ripgrep/fd-backed; this covers
+ * the gap where the model writes its own search inside bash. Nothing is
+ * blocked or rewritten.
  *
  * Install: pi install npm:@pi-spice/prefer-modern-cli
  * Quick test: pi -e ./extensions/prefer-modern-cli
