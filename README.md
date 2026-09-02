@@ -10,7 +10,7 @@ pi install npm:@pi-spice/all
 
 ## Extensions
 
-- **[prefer-modern-cli](./extensions/prefer-modern-cli)** — Prefer `rg`/`fd` over `grep`/`egrep`/`ack`/`find` in hand-written bash search commands; a session-start badge reports what's available
+- **[prefer-modern-cli](./extensions/prefer-modern-cli)** — Prefer `rg`/`fd` over `grep`/`egrep`/`ack`/`find` in hand-written bash search commands
 - **[thinking-preview](./extensions/thinking-preview)** — Collapse streaming thinking blocks into a compact live preview; `alt+t` toggles full text
 - **[minimal-subagents](./extensions/minimal-subagents)** — Dynamically create sub-agents and run them in parallel with one blocking tool; no orchestration, no nesting; `alt+a` tabbed live-details panel
 
