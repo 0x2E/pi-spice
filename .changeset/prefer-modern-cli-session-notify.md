@@ -3,4 +3,4 @@
 "@pi-spice/all": minor
 ---
 
-Replace the transcript warning banner with a one-shot session-start status badge (`◆ prefer-modern-cli  rg ✓ · fd ✗`, accent label and green/red marks, missing tools included), and slim the injected system prompt to one line per available tool under a `## CLI Tool Preferences` heading.
+Replace the missing-tool warning banner with a one-shot session-start badge showing each tool's availability (`◆ prefer-modern-cli  rg ✓ · fd ✗`), and slim the system prompt to one preference line per available tool.
