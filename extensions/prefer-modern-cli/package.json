@@ -1,7 +1,7 @@
 {
   "name": "@pi-spice/prefer-modern-cli",
   "version": "0.1.0",
-  "description": "Nudge pi to use rg/fd instead of grep/find in hand-written bash search commands; notifies at session start which are available",
+  "description": "Nudge the model to use modern CLI tools (rg/fd) over grep/egrep/ack/find in hand-written bash search commands; session-start badge reports which were detected",
   "keywords": ["pi-package"],
   "license": "MIT",
   "repository": {
