@@ -1,12 +1,13 @@
 /**
- * prefer-modern-cli — nudge the model to use modern CLI tools (`rg`, `fd`) in bash commands
+ * prefer-modern-cli — prefer modern CLI tools (`rg`, `fd`, …) in bash commands
  *
- * pi's built-in `grep`/`find` tools are already ripgrep/fd-backed and need no
- * replacement; this extension covers the gap where the model hand-writes a
- * search command inside a bash invocation. It first verifies each tool is
- * actually usable in bash (pi's managed `~/.pi/agent/bin` copies count — that
- * directory is on the bash tool's PATH). Missing tools get a yellow warning
- * banner instead of a preference that would only fail.
+ * Probes each tool (managed `~/.pi/agent/bin`, then PATH) once per instance.
+ * Available tools get one preference line in the system prompt when bash is
+ * active. Session start fires a one-line availability badge. Missing tools
+ * are skipped — a preference for a missing binary would only fail.
+ *
+ * Nothing is blocked or rewritten. Current entries: `rg` over grep/egrep/ack,
+ * `fd` over find. pi's built-in `grep`/`find` tools are already ripgrep/fd-backed.
  *
  * Install: pi install npm:@pi-spice/prefer-modern-cli
  * Quick test: pi -e ./extensions/prefer-modern-cli
@@ -14,23 +15,16 @@
 
 import { getAgentDir, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { join } from "node:path";
-import { Text } from "@earendil-works/pi-tui";
-
-const WARNING_TYPE = "prefer-modern-cli-warning";
 
 /** Tool pairs: modern replacement vs. legacy command it supersedes. */
 const TOOLS = [
 	{
 		name: "rg",
-		guideline:
-			"- For content searches in bash commands, use `rg` (ripgrep) instead of `grep`, `egrep`, or `ack`.\n" +
-			"  Examples: `rg pattern`, `rg -i pattern --glob '*.ts'`, `rg -l pattern src/`.",
+		prompt: "Prefer `rg` over `grep`, `egrep`, or `ack` in bash commands.",
 	},
 	{
 		name: "fd",
-		guideline:
-			"- For file-name searches in bash commands, use `fd` instead of `find`.\n" +
-			"  Examples: `fd --glob '*.ts'`, `fd -e json`, `fd -H pattern`.",
+		prompt: "Prefer `fd` over `find` in bash commands.",
 	},
 ] as const;
 
@@ -39,22 +33,10 @@ function managedBin(name: string): string {
 	return join(getAgentDir(), "bin", process.platform === "win32" ? `${name}.exe` : name);
 }
 
-/** Yellow background, black bold text — readable on light and dark themes. */
-const warningBg = (s: string) => `\x1b[43;30;1m${s}\x1b[0m`;
-
-const missingOf = (available: Set<string>): string[] =>
-	TOOLS.map((tool) => tool.name).filter((name) => !available.has(name));
-
-function promptSection(available: Set<string>, selectedTools: string[] | undefined): string | undefined {
-	const bullets = TOOLS.filter((tool) => available.has(tool.name)).map((tool) => tool.guideline);
+function promptSection(available: Set<string>): string | undefined {
+	const bullets = TOOLS.filter((tool) => available.has(tool.name)).map((tool) => tool.prompt);
 	if (bullets.length === 0) return undefined;
-	bullets.push("- `rg` and `fd` are fast and respect .gitignore.");
-	// Only point at built-in tools that are actually active in this session.
-	const builtIns = (["grep", "find"] as const).filter((name) => selectedTools?.includes(name));
-	if (builtIns.length > 0) {
-		bullets.push(`- The built-in \`${builtIns.join("`/`")}\` tool${builtIns.length > 1 ? "s" : ""} remain${builtIns.length > 1 ? "" : "s"} the preferred tools for searches.`);
-	}
-	return `\n\n## Search Command Preference\n\n${bullets.join("\n")}\n`;
+	return `\n\n## CLI Tool Preferences\n\n${bullets.map((b) => `- ${b}`).join("\n")}\n`;
 }
 
 export default function preferModernCli(pi: ExtensionAPI) {
@@ -82,34 +64,17 @@ export default function preferModernCli(pi: ExtensionAPI) {
 			return available;
 		})());
 
-	// One banner per session file: the entry persists, so resumes, forks and
-	// reloads keep the original instead of stacking another one.
-	let warned = false;
-	const warnOnce = (missing: string[]) => {
-		if (warned || missing.length === 0) return;
-		warned = true;
-		pi.appendEntry(WARNING_TYPE, { missing, timestamp: Date.now() });
-	};
-
-	// Rendered inside the transcript (TUI mode only); does not reach the LLM.
-	pi.registerEntryRenderer(WARNING_TYPE, (entry: { data?: { missing?: string[] } }) => {
-		const missing = entry.data?.missing ?? TOOLS.map((tool) => tool.name);
-		return new Text(
-			`⚠ prefer-modern-cli: ${missing.join(", ")} not found — ${missing.length > 1 ? "their guidelines are" : "its guideline is"} skipped.`,
-			1,
-			0,
-			warningBg,
-		);
-	});
-
-	// Earliest possible moment: entering the agent with bash already active.
+	// One-shot notice when a session starts (startup/new/resume/fork/reload all
+	// count): a self-contained status badge on one line. "info" renders as a
+	// dim transcript line; embedded theme colors override that dim base.
 	pi.on("session_start", async (_event, ctx) => {
-		warned = ctx.sessionManager
-			.getEntries()
-			.some((entry) => entry.type === "custom" && entry.customType === WARNING_TYPE);
-		if (warned) return;
-		if (!pi.getActiveTools().includes("bash")) return;
-		warnOnce(missingOf(await availableTools()));
+		if (!ctx.hasUI) return;
+		const available = await availableTools();
+		const t = ctx.ui.theme;
+		const marks = TOOLS.map(
+			(tool) => `${t.fg("dim", tool.name)} ${available.has(tool.name) ? t.fg("success", "✓") : t.fg("error", "✗")}`,
+		).join(t.fg("dim", " · "));
+		ctx.ui.notify(`${t.fg("accent", "◆ prefer-modern-cli")}  ${marks}`, "info");
 	});
 
 	pi.on("before_agent_start", async (event) => {
@@ -120,10 +85,7 @@ export default function preferModernCli(pi: ExtensionAPI) {
 		const hasBash = selected?.includes("bash") ?? pi.getActiveTools().includes("bash");
 		if (!hasBash) return;
 
-		const available = await availableTools();
-		warnOnce(missingOf(available));
-
-		const section = promptSection(available, selected);
+		const section = promptSection(await availableTools());
 		if (!section) return undefined;
 		return { systemPrompt: event.systemPrompt + section };
 	});
