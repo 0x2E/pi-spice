@@ -24,7 +24,7 @@ Quick test from this repo: `pi -e ./extensions/minimal-subagents`
 | `name` | — | `agent-<index>` |
 
 - **Failures don't cancel siblings** — every agent runs to completion; each result is a `### [name] completed/failed` section with the agent's final output (50 KB cap; full transcripts stay in the tool details). `isError` only when all fail.
-- **Live progress** — the collapsed transcript block is a compact tree: a quantified header (progress + elapsed while running; success count, duration, tool count, tokens and cost when done) and one line per agent (`✻` running / `·` queued / `✓`/`✗` done) showing duration, tool count, and the latest activity or the first line of the result. Single-agent calls render as a two-liner. `alt+a` opens the live detail panel; `Ctrl+O` after completion expands to each agent's final output.
+- **Live progress** — the collapsed transcript block is a tree of small per-agent blocks (OpenCode-style `├`/`└`): a quantified call header (progress + elapsed while running; success count, duration, tool count, tokens and cost when done), then per agent a header line (status glyph, duration, tool count, tokens/cost — and model when the call mixes models) over an indented line showing the latest tool call while running or the first line of the result once finished. Queued agents are one-liners; single-agent calls render as a plain two-liner. `alt+a` opens the live detail panel; `Ctrl+O` after completion expands to each agent's final output.
 - **Abort** returns partial results — finished agents keep their output, the rest are marked `aborted`; the whole child process group is killed (`SIGTERM`, then `SIGKILL` after 5 s).
 
 ## Details panel (`alt+a`)

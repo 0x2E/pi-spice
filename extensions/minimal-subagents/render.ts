@@ -11,7 +11,7 @@ import * as os from "node:os";
 import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { Message } from "@earendil-works/pi-ai";
 import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
-import { Container, Markdown, Spacer, Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { Container, Markdown, Spacer, Text, truncateToWidth } from "@earendil-works/pi-tui";
 import {
 	getFinalOutput,
 	isFailedResult,
@@ -236,15 +236,7 @@ function aggregateUsage(results: SingleResult[]) {
 	return total;
 }
 
-/** "2 tools" while running; "12s · 6 tools" once done — per scoreboard line. */
-function agentStats(r: SingleResult): string {
-	const tools = toolUseCount(r.messages);
-	const toolsStr = tools > 0 ? `${tools} tool${tools > 1 ? "s" : ""}` : "";
-	if (r.exitCode === -1) return toolsStr;
-	return toolsStr ? `${formatDuration(agentDuration(r))} · ${toolsStr}` : formatDuration(agentDuration(r));
-}
-
-/** agentStats plus output tokens and cost once finished — result headers. */
+/** Duration + tool count + (once finished) tokens and cost — block headers. */
 function headerStats(r: SingleResult): string {
 	const parts = [formatDuration(agentDuration(r))];
 	const tools = toolUseCount(r.messages);
@@ -258,7 +250,6 @@ function headerStats(r: SingleResult): string {
 
 /** Latest activity while running; the explicit outcome once finished. */
 function agentActivity(r: SingleResult, theme: RenderTheme): string {
-	if (r.exitCode === -1 && r.messages.length === 0) return theme.fg("muted", "queued");
 	if (isFailedResult(r)) {
 		const reason = (r.errorMessage || r.stderr || r.stopReason || "error").split("\n")[0];
 		return theme.fg("error", reason);
@@ -278,20 +269,18 @@ function agentActivity(r: SingleResult, theme: RenderTheme): string {
 	return theme.fg("toolOutput", last.text.split("\n")[0]);
 }
 
-/** Accent-colored name padded to a column (truncated with … if too long). */
-function padName(name: string, column: number, theme: RenderTheme): string {
-	const plain =
-		visibleWidth(name) <= column
-			? name + " ".repeat(column - visibleWidth(name))
-			: truncateVisual(name, column);
-	return theme.fg("accent", plain);
+function isQueued(r: SingleResult): boolean {
+	return r.exitCode === -1 && r.messages.length === 0;
 }
 
 /**
- * The collapsed transcript block: a quantified header plus one railed line per
- * agent (status glyph, name column, duration/tool stats, live activity or
- * result preview). Single-agent calls degrade to a two-liner. The panel
- * (alt+a) is the live view; this stays a summary, not a competing log.
+ * The collapsed transcript block: a quantified call header, then one small
+ * block per agent on an OpenCode-style ├/└ tree — a quantified header line
+ * (status, duration, tool count, tokens/cost, model when the call mixes
+ * models) over an indented activity line (latest tool call while running,
+ * first line of the answer once finished). Queued agents stay one-liners.
+ * Single-agent calls degrade to a plain two-liner. The panel (alt+a) is the
+ * live view; this stays a summary, not a competing log.
  */
 function scoreboardView(details: SubagentDetails, theme: RenderTheme): Text {
 	const results = details.results;
@@ -303,8 +292,12 @@ function scoreboardView(details: SubagentDetails, theme: RenderTheme): Text {
 	let text: string;
 	if (results.length === 1) {
 		const r = results[0];
-		text = `${statusGlyph(r, theme)} ${theme.fg("toolTitle", theme.bold(r.name))} ${theme.fg("dim", headerStats(r))}`;
-		text += `\n  ${truncateVisual(agentActivity(r, theme), terminalColumns() - 2)}`;
+		const stats = isQueued(r) ? "queued" : headerStats(r);
+		text = `${statusGlyph(r, theme)} ${theme.fg("toolTitle", theme.bold(r.name))} ${theme.fg("dim", stats)}`;
+		if (!isQueued(r)) {
+			const activity = agentActivity(r, theme);
+			if (activity) text += `\n  ${truncateVisual(activity, terminalColumns() - 2)}`;
+		}
 	} else {
 		const headIcon = isRunning
 			? theme.fg("warning", "✻")
@@ -327,18 +320,24 @@ function scoreboardView(details: SubagentDetails, theme: RenderTheme): Text {
 		}
 		text = `${headIcon} ${theme.fg("toolTitle", theme.bold("spawn_agents"))} ${theme.fg("accent", headParts.join(" · "))}`;
 
-		const nameColumn = Math.min(12, Math.max(...results.map((r) => visibleWidth(r.name))));
-		const rail = theme.fg("muted", "│ ");
-		for (const r of results) {
-			let line = `${rail}${statusGlyph(r, theme)} ${padName(r.name, nameColumn, theme)}`;
-			const stats = agentStats(r);
-			if (stats) line += ` ${theme.fg("dim", stats)}`;
-			const activity = agentActivity(r, theme);
-			if (activity) {
-				const avail = terminalColumns() - visibleWidth(line) - 2;
-				if (avail >= 8) line += `  ${truncateVisual(activity, avail)}`;
+		// Label models only when the call mixes them — a uniform call would
+		// just repeat the parent's model on every block.
+		const models = new Set(results.map((r) => r.model).filter(Boolean));
+		const showModels = models.size > 1;
+
+		for (let i = 0; i < results.length; i++) {
+			const r = results[i];
+			const last = i === results.length - 1;
+			const connector = theme.fg("muted", last ? "└─ " : "├─ ");
+			const cont = last ? "     " : theme.fg("muted", "│    ");
+			const stats = isQueued(r) ? "queued" : headerStats(r);
+			let header = `${connector}${statusGlyph(r, theme)} ${theme.fg("toolTitle", theme.bold(r.name))} ${theme.fg("dim", stats)}`;
+			if (showModels && r.model) header += ` ${theme.fg("dim", r.model.split("/").pop() ?? r.model)}`;
+			text += `\n${header}`;
+			if (!isQueued(r)) {
+				const activity = agentActivity(r, theme);
+				if (activity) text += `\n${cont}${truncateVisual(activity, terminalColumns() - 5)}`;
 			}
-			text += `\n${line}`;
 		}
 	}
 	text += `\n${theme.fg("muted", isRunning ? "⎿ alt+a live details" : "⎿ alt+a timeline · ctrl+o expand")}`;
