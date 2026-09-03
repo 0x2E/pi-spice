@@ -166,7 +166,7 @@ function getDisplayItems(messages: Message[]): DisplayItem[] {
 export function renderSpawnCall(args: SpawnAgentsArgs, theme: RenderTheme): Text {
 	// One line only: agent names and task previews live in the result blocks
 	// (seeded the moment the tool starts), so repeating them here would just
-	// duplicate the list below the divider.
+	// duplicate the list below.
 	const count = args.agents?.length;
 	if (count) {
 		const text =
@@ -183,8 +183,7 @@ function isAgentRunning(details: SubagentDetails): boolean {
 
 // --- glyph system ------------------------------------------------------------
 // Single-width glyphs only (⏳ renders emoji-wide on many terminals and breaks
-// column alignment): ✻ running · queued ✓ done ✗ failed ◐ mixed outcome.
-// `│` rails the per-agent lines, `⎿` closes the block.
+// column alignment): ✻ running · queued ✓ done ✗ failed.
 
 function statusGlyph(r: SingleResult, theme: RenderTheme): string {
 	if (r.exitCode === -1) return r.messages.length === 0 ? theme.fg("muted", "·") : theme.fg("warning", "✻");
@@ -233,7 +232,7 @@ function aggregateUsage(results: SingleResult[]) {
 	return total;
 }
 
-/** Duration + tool count + (once finished) tokens and cost — block headers. */
+/** Duration + tool count + (once finished) tokens and cost — expanded headers. */
 function headerStats(r: SingleResult): string {
 	const parts = [formatDuration(agentDuration(r))];
 	const tools = toolUseCount(r.messages);
@@ -245,20 +244,25 @@ function headerStats(r: SingleResult): string {
 	return parts.join(" · ");
 }
 
-/** Latest activity while running; the explicit outcome once finished. */
-function agentActivity(r: SingleResult, theme: RenderTheme): string {
-	if (isFailedResult(r)) {
-		const reason = (r.errorMessage || r.stderr || r.stopReason || "error").split("\n")[0];
-		return theme.fg("error", reason);
-	}
-	if (r.exitCode !== -1) {
-		// Finished: the first non-empty line of the final answer — not just
-		// whatever the last message happened to be.
-		const firstLine = getFinalOutput(r.messages)
-			.split("\n")
-			.find((l) => l.trim().length > 0);
-		return firstLine ? theme.fg("toolOutput", firstLine) : theme.fg("muted", "(no output)");
-	}
+/** Duration + tool count only — collapsed headers; tokens/cost live on the summary line. */
+function collapsedStats(r: SingleResult): string {
+	const parts = [formatDuration(agentDuration(r))];
+	const tools = toolUseCount(r.messages);
+	if (tools) parts.push(`${tools} tool${tools > 1 ? "s" : ""}`);
+	return parts.join(" · ");
+}
+
+function failReason(r: SingleResult): string {
+	return (r.errorMessage || r.stderr || r.stopReason || "error").split("\n")[0];
+}
+
+function taskFirstLine(task: string): string {
+	return task.split("\n").find((l) => l.trim().length > 0) ?? "";
+}
+
+/** Latest tool call or assistant text; only meaningful while the agent is in flight. */
+function runningActivity(r: SingleResult, theme: RenderTheme): string | null {
+	if (r.exitCode !== -1 || isQueued(r)) return null;
 	const items = getDisplayItems(r.messages);
 	const last = items[items.length - 1];
 	if (!last) return theme.fg("muted", "starting…");
@@ -271,15 +275,13 @@ function isQueued(r: SingleResult): boolean {
 }
 
 /**
- * The collapsed transcript block: indented agent blocks under the one-line
- * call header (`spawn_agents (N agents)`), closed by a summary line (call
- * totals — multi-agent, finished calls only; each block already shows its
- * own elapsed while running) and a muted hint line. Each block is a
- * quantified header line (status, duration, tool count, tokens/cost, model
- * when the call mixes models) over an indented line showing the task while
- * queued, the latest tool call while running, or the first line of the
- * answer once finished. The panel (alt+a) is the live view; this stays a
- * summary, not a competing log.
+ * The collapsed transcript block under the one-line call header
+ * (`spawn_agents (N agents)`). Every agent is a 2-line block — glyph + name
+ * + stats, then the first line of its task (the stable identifier, even
+ * when names are opaque). Running agents grow a third line with the latest
+ * tool call. Failed agents put the error on the header; tokens/cost live
+ * only on the call-total summary (multi-agent, finished). The hint line is
+ * running-only. The panel (alt+a) is the live timeline; this stays a summary.
  */
 function scoreboardView(details: SubagentDetails, theme: RenderTheme): Text {
 	const results = details.results;
@@ -305,21 +307,24 @@ function scoreboardView(details: SubagentDetails, theme: RenderTheme): Text {
 	// just repeat the parent's model on every block.
 	const models = new Set(results.map((r) => r.model).filter(Boolean));
 	const showModels = models.size > 1;
+	const cols = terminalColumns();
 
 	const lines: string[] = [];
 	for (const r of results) {
-		const stats = isQueued(r) ? "queued" : headerStats(r);
-		let header = `  ${statusGlyph(r, theme)} ${theme.fg("toolTitle", theme.bold(r.name))} ${theme.fg("dim", stats)}`;
+		let header = `${statusGlyph(r, theme)} ${theme.fg("toolTitle", theme.bold(r.name))}`;
+		if (!isQueued(r)) header += ` ${theme.fg("dim", collapsedStats(r))}`;
 		if (showModels && r.model) header += ` ${theme.fg("dim", r.model.split("/").pop() ?? r.model)}`;
-		lines.push(header);
-		// Queued: the task itself is the preview (this is where the call-time
-		// task list went). Running: latest activity. Done: result first line.
-		const activity = isQueued(r) ? theme.fg("dim", r.task) : agentActivity(r, theme);
-		if (activity) lines.push(`    ${truncateVisual(activity, terminalColumns() - 5)}`);
+		if (isFailedResult(r)) header += `  ${theme.fg("error", failReason(r))}`;
+		lines.push(truncateVisual(header, cols));
+
+		const task = taskFirstLine(r.task);
+		if (task) lines.push(`  ${truncateVisual(theme.fg("dim", task), cols - 2)}`);
+
+		const activity = runningActivity(r, theme);
+		if (activity) lines.push(`  ${truncateVisual(activity, cols - 2)}`);
 	}
 	if (summary) lines.push(theme.fg("dim", summary));
-	const hint = isRunning ? "alt+a live details" : "alt+a timeline · ctrl+o expand";
-	lines.push(theme.fg("muted", hint));
+	if (isRunning) lines.push(theme.fg("muted", "alt+a live details"));
 	return new Text(lines.join("\n"), 0, 0);
 }
 
@@ -373,11 +378,5 @@ export function renderSpawnResult(
 		return container;
 	}
 
-	// --- collapsed scoreboard --------------------------------------------
-
-	// --- collapsed scoreboard --------------------------------------------
-	// The panel (alt+a) is the live view; the collapsed transcript block is a
-	// summary, not a competing log. Expanded (ctrl+o, after completion) is the
-	// archive.
 	return scoreboardView(details, theme);
 }
