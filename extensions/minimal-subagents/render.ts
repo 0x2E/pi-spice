@@ -11,7 +11,7 @@ import * as os from "node:os";
 import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { Message } from "@earendil-works/pi-ai";
 import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
-import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
+import { Container, Markdown, Spacer, Text, truncateToWidth } from "@earendil-works/pi-tui";
 import {
 	getFinalOutput,
 	isFailedResult,
@@ -62,7 +62,23 @@ export function formatUsageStats(
 	return parts.join(" ");
 }
 
-export function formatToolCall(
+export /** Terminal width for transcript lines — the render hooks get no width from the host. */
+function terminalColumns(): number {
+	return process.stdout.columns ?? 80;
+}
+
+/**
+ * Width-aware truncation for possibly ANSI-styled text: `truncateToWidth`
+ * measures display columns (CJK = 2, escapes = 0) and never slices an escape
+ * sequence or grapheme cluster in half. Hand-assembled transcript lines must
+ * go through this — never `String.slice`, which counts UTF-16 units and
+ * overflows on CJK text or styled strings.
+ */
+function truncateVisual(text: string, maxCols: number): string {
+	return truncateToWidth(text, maxCols, "…");
+}
+
+function formatToolCall(
 	toolName: string,
 	args: Record<string, unknown>,
 	themeFg: (color: any, text: string) => string,
@@ -75,7 +91,7 @@ export function formatToolCall(
 	switch (toolName) {
 		case "bash": {
 			const command = (args.command as string) || "...";
-			const preview = command.length > 60 ? `${command.slice(0, 60)}...` : command;
+			const preview = truncateVisual(command, 60);
 			return themeFg("muted", "$ ") + themeFg("toolOutput", preview);
 		}
 		case "read": {
@@ -123,9 +139,11 @@ export function formatToolCall(
 			);
 		}
 		default: {
-			const argsStr = JSON.stringify(args);
-			const preview = argsStr.length > 50 ? `${argsStr.slice(0, 50)}...` : argsStr;
-			return themeFg("accent", toolName) + themeFg("dim", ` ${preview}`);
+			// Unknown tools: preview the first string argument (a path, pattern,
+			// command — whatever it is) instead of dumping raw JSON.
+			const firstString = Object.values(args).find((v): v is string => typeof v === "string" && v.length > 0);
+			const preview = firstString ? ` ${truncateVisual(firstString, 50)}` : "";
+			return themeFg("accent", toolName) + themeFg("dim", preview);
 		}
 	}
 }
@@ -150,19 +168,16 @@ export function renderSpawnCall(args: SpawnAgentsArgs, theme: RenderTheme): Text
 		let text =
 			theme.fg("toolTitle", theme.bold("spawn_agents ")) +
 			theme.fg("accent", `(${args.agents.length} agent${args.agents.length > 1 ? "s" : ""})`);
-		for (const a of args.agents.slice(0, 3)) {
-			const preview = a.task.length > 40 ? `${a.task.slice(0, 40)}...` : a.task;
+		for (let i = 0; i < Math.min(3, args.agents.length); i++) {
+			const a = args.agents[i];
+			const preview = truncateVisual(a.task, 40);
 			const model = a.model ? theme.fg("dim", ` [${a.model}]`) : "";
-			text += `\n  ${theme.fg("accent", a.name || "agent")}${model}${theme.fg("dim", ` ${preview}`)}`;
+			text += `\n  ${theme.fg("accent", a.name || `agent-${i + 1}`)}${model}${theme.fg("dim", ` ${preview}`)}`;
 		}
 		if (args.agents.length > 3) text += `\n  ${theme.fg("muted", `... +${args.agents.length - 3} more`)}`;
 		return new Text(text, 0, 0);
 	}
 	return new Text(theme.fg("toolTitle", theme.bold("spawn_agents")), 0, 0);
-}
-
-function truncatePlain(text: string, max: number): string {
-	return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 
 function isAgentRunning(details: SubagentDetails): boolean {
@@ -185,13 +200,15 @@ function scoreboardLine(r: SingleResult, theme: RenderTheme): string {
 		activity = theme.fg("muted", "queued");
 	} else if (isFailedResult(r)) {
 		const reason = (r.errorMessage || r.stderr || r.stopReason || "error").split("\n")[0];
-		activity = theme.fg("error", truncatePlain(reason, 60));
+		activity = theme.fg("error", truncateVisual(reason, 60));
 	} else {
 		const items = getDisplayItems(r.messages);
 		const last = items[items.length - 1];
 		if (!last) activity = theme.fg("muted", r.exitCode === -1 ? "starting…" : "(no output)");
-		else if (last.type === "toolCall") activity = formatToolCall(last.name, last.args, theme.fg.bind(theme));
-		else activity = theme.fg("toolOutput", truncatePlain(last.text.split("\n")[0], 60));
+		// Tool-call previews carry ANSI styling — truncateVisual keeps the
+		// escape sequences intact and long commands from wrapping the line.
+		else if (last.type === "toolCall") activity = truncateVisual(formatToolCall(last.name, last.args, theme.fg.bind(theme)), 60);
+		else activity = theme.fg("toolOutput", truncateVisual(last.text.split("\n")[0], 60));
 	}
 
 	const turns = r.usage.turns > 0 ? theme.fg("dim", ` ${r.usage.turns}t`) : "";
