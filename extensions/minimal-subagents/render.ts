@@ -272,13 +272,13 @@ function isQueued(r: SingleResult): boolean {
 
 /**
  * The collapsed transcript block: indented agent blocks under the one-line
- * call header (`spawn_agents (N agents)`), closed by a footer line that
- * carries the call-level summary plus the panel/expand hints. Each block is
- * a quantified header line (status, duration, tool count, tokens/cost, model
+ * call header (`spawn_agents (N agents)`), closed by a summary line (call
+ * totals — multi-agent, finished calls only; each block already shows its
+ * own elapsed while running) and a muted hint line. Each block is a
+ * quantified header line (status, duration, tool count, tokens/cost, model
  * when the call mixes models) over an indented line showing the task while
  * queued, the latest tool call while running, or the first line of the
- * answer once finished. Single-agent calls drop the footer summary — the one
- * block already carries it. The panel (alt+a) is the live view; this stays a
+ * answer once finished. The panel (alt+a) is the live view; this stays a
  * summary, not a competing log.
  */
 function scoreboardView(details: SubagentDetails, theme: RenderTheme): Text {
@@ -289,20 +289,16 @@ function scoreboardView(details: SubagentDetails, theme: RenderTheme): Text {
 	const isRunning = running > 0;
 
 	let summary = "";
-	if (results.length > 1) {
-		const parts = [
-			isRunning ? `${results.length - running}/${results.length} done` : `${successCount}/${results.length}`,
-		];
-		if (!isRunning && failCount > 0) parts.push(`${failCount} failed`);
+	if (!isRunning && results.length > 1) {
+		const parts = [`${successCount}/${results.length}`];
+		if (failCount > 0) parts.push(`${failCount} failed`);
 		parts.push(formatDuration(callDuration(details)));
-		if (!isRunning) {
-			const total = aggregateUsage(results);
-			const totalTools = results.reduce((n, r) => n + toolUseCount(r.messages), 0);
-			if (totalTools > 0) parts.push(`${totalTools} tools`);
-			if (total.output) parts.push(`↓${formatTokens(total.output)}`);
-			if (total.cost) parts.push(`$${total.cost.toFixed(4)}`);
-		}
-		summary = `${parts.join(" · ")} · `;
+		const total = aggregateUsage(results);
+		const totalTools = results.reduce((n, r) => n + toolUseCount(r.messages), 0);
+		if (totalTools > 0) parts.push(`${totalTools} tools`);
+		if (total.output) parts.push(`↓${formatTokens(total.output)}`);
+		if (total.cost) parts.push(`$${total.cost.toFixed(4)}`);
+		summary = parts.join(" · ");
 	}
 
 	// Label models only when the call mixes them — a uniform call would
@@ -321,8 +317,9 @@ function scoreboardView(details: SubagentDetails, theme: RenderTheme): Text {
 		const activity = isQueued(r) ? theme.fg("dim", r.task) : agentActivity(r, theme);
 		if (activity) lines.push(`    ${truncateVisual(activity, terminalColumns() - 5)}`);
 	}
+	if (summary) lines.push(theme.fg("dim", summary));
 	const hint = isRunning ? "alt+a live details" : "alt+a timeline · ctrl+o expand";
-	lines.push(theme.fg("muted", `⎿ ${summary}${hint}`));
+	lines.push(theme.fg("muted", hint));
 	return new Text(lines.join("\n"), 0, 0);
 }
 
