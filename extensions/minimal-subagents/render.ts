@@ -62,7 +62,7 @@ export function formatUsageStats(
 	return parts.join(" ");
 }
 
-export /** Terminal width for transcript lines — the render hooks get no width from the host. */
+/** Terminal width for transcript lines — the render hooks get no width from the host. */
 function terminalColumns(): number {
 	return process.stdout.columns ?? 80;
 }
@@ -78,7 +78,7 @@ function truncateVisual(text: string, maxCols: number): string {
 	return truncateToWidth(text, maxCols, "…");
 }
 
-function formatToolCall(
+export function formatToolCall(
 	toolName: string,
 	args: Record<string, unknown>,
 	themeFg: (color: any, text: string) => string,
@@ -358,103 +358,44 @@ export function renderSpawnResult(
 
 	const mdTheme = getMarkdownTheme();
 
-	if (expanded && !isAgentRunning(details) && details.results.length === 1) {
-		const r = details.results[0];
-		const isError = isFailedResult(r);
-		const icon = isError ? theme.fg("error", "✗") : theme.fg("success", "✓");
-		const displayItems = getDisplayItems(r.messages);
-		const finalOutput = getFinalOutput(r.messages);
-
+	if (expanded && !isAgentRunning(details)) {
+		// Expanded (ctrl+o, after completion): final outputs only — one block
+		// per agent with a quantified header and the answer rendered as
+		// markdown. The per-tool timeline is the panel's job (alt+a); the
+		// transcript archive does not duplicate it.
 		const container = new Container();
-		let header = `${icon} ${theme.fg("toolTitle", theme.bold(r.name))}`;
-		if (isError && r.stopReason) header += ` ${theme.fg("error", `[${r.stopReason}]`)}`;
-		container.addChild(new Text(header, 0, 0));
-		if (isError && r.errorMessage)
-			container.addChild(new Text(theme.fg("error", `Error: ${r.errorMessage}`), 0, 0));
-		container.addChild(new Spacer(1));
-		container.addChild(new Text(theme.fg("muted", "─── Task ───"), 0, 0));
-		container.addChild(new Text(theme.fg("dim", r.task), 0, 0));
-		container.addChild(new Spacer(1));
-		container.addChild(new Text(theme.fg("muted", "─── Output ───"), 0, 0));
-		if (displayItems.length === 0 && !finalOutput) {
-			container.addChild(new Text(theme.fg("muted", "(no output)"), 0, 0));
-		} else {
-			for (const item of displayItems) {
-				if (item.type === "toolCall")
-					container.addChild(
-						new Text(
-							theme.fg("muted", "→ ") + formatToolCall(item.name, item.args, theme.fg.bind(theme)),
-							0, 0,
-						),
-					);
-			}
-			if (finalOutput) {
-				container.addChild(new Spacer(1));
-				container.addChild(new Markdown(finalOutput.trim(), 0, 0, mdTheme));
-			}
-		}
-		const usageStr = formatUsageStats(r.usage, r.model);
-		if (usageStr) {
-			container.addChild(new Spacer(1));
-			container.addChild(new Text(theme.fg("dim", usageStr), 0, 0));
-		}
-		return container;
-	}
-
-	const running = details.results.filter((r) => r.exitCode === -1).length;
-	const successCount = details.results.filter((r) => r.exitCode !== -1 && !isFailedResult(r)).length;
-	const failCount = details.results.filter((r) => r.exitCode !== -1 && isFailedResult(r)).length;
-	const isRunning = running > 0;
-	const icon = isRunning
-		? theme.fg("warning", "⏳")
-		: failCount > 0
-			? theme.fg("warning", "◐")
-			: theme.fg("success", "✓");
-	const status = isRunning
-		? `${successCount + failCount}/${details.results.length} done, ${running} running`
-		: `${successCount}/${details.results.length} succeeded${failCount > 0 ? `, ${failCount} failed` : ""}`;
-
-	if (expanded && !isRunning) {
-		const container = new Container();
-		container.addChild(
-			new Text(`${icon} ${theme.fg("toolTitle", theme.bold("spawn_agents "))}${theme.fg("accent", status)}`, 0, 0),
-		);
-
-		for (const r of details.results) {
-			const rIcon = isFailedResult(r) ? theme.fg("error", "✗") : theme.fg("success", "✓");
-			const displayItems = getDisplayItems(r.messages);
-			const finalOutput = getFinalOutput(r.messages);
-
-			container.addChild(new Spacer(1));
-			container.addChild(new Text(`${theme.fg("muted", "─── ") + theme.fg("accent", r.name)} ${rIcon}`, 0, 0));
+		details.results.forEach((r, i) => {
+			if (i > 0) container.addChild(new Spacer(1));
+			const isError = isFailedResult(r);
+			let header = `${statusGlyph(r, theme)} ${theme.fg("toolTitle", theme.bold(r.name))} ${theme.fg("dim", headerStats(r))}`;
+			if (isError && r.stopReason) header += ` ${theme.fg("error", `[${r.stopReason}]`)}`;
+			container.addChild(new Text(header, 0, 0));
+			if (isError && r.errorMessage)
+				container.addChild(new Text(theme.fg("error", `Error: ${r.errorMessage}`), 0, 0));
 			container.addChild(new Text(theme.fg("muted", "Task: ") + theme.fg("dim", r.task), 0, 0));
-
-			// Show tool calls
-			for (const item of displayItems) {
-				if (item.type === "toolCall") {
-					container.addChild(
-						new Text(theme.fg("muted", "→ ") + formatToolCall(item.name, item.args, theme.fg.bind(theme)), 0, 0),
-					);
-				}
-			}
-
-			// Show final output as markdown
-			if (finalOutput) {
+			const finalOutput = getFinalOutput(r.messages);
+			if (finalOutput.trim()) {
 				container.addChild(new Spacer(1));
 				container.addChild(new Markdown(finalOutput.trim(), 0, 0, mdTheme));
+			} else {
+				container.addChild(new Text(theme.fg("muted", "(no output)"), 0, 0));
 			}
-
-			const taskUsage = formatUsageStats(r.usage, r.model);
-			if (taskUsage) container.addChild(new Text(theme.fg("dim", taskUsage), 0, 0));
-		}
-
-		const usageStr = formatUsageStats(aggregateUsage(details.results));
-		if (usageStr) {
+		});
+		if (details.results.length > 1) {
+			// Same shape as the collapsed header, prefixed with Total.
+			const total = aggregateUsage(details.results);
+			const totalTools = toolUseCount(details.results.flatMap((r) => r.messages));
+			const headParts = [formatDuration(callDuration(details))];
+			if (totalTools > 0) headParts.push(`${totalTools} tools`);
+			if (total.output) headParts.push(`↓${formatTokens(total.output)}`);
+			if (total.cost) headParts.push(`$${total.cost.toFixed(4)}`);
 			container.addChild(new Spacer(1));
-			container.addChild(new Text(theme.fg("dim", `Total: ${usageStr}`), 0, 0));
+			container.addChild(new Text(theme.fg("dim", `Total: ${headParts.join(" · ")}`), 0, 0));
 		}
 		return container;
 	}
+
+	// --- collapsed scoreboard --------------------------------------------
 
 	// --- collapsed scoreboard --------------------------------------------
 	// The panel (alt+a) is the live view; the collapsed transcript block is a
