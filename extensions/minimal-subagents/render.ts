@@ -164,17 +164,14 @@ function getDisplayItems(messages: Message[]): DisplayItem[] {
 }
 
 export function renderSpawnCall(args: SpawnAgentsArgs, theme: RenderTheme): Text {
-	if (args.agents?.length) {
-		let text =
+	// One line only: agent names and task previews live in the result blocks
+	// (seeded the moment the tool starts), so repeating them here would just
+	// duplicate the list below the divider.
+	const count = args.agents?.length;
+	if (count) {
+		const text =
 			theme.fg("toolTitle", theme.bold("spawn_agents ")) +
-			theme.fg("accent", `(${args.agents.length} agent${args.agents.length > 1 ? "s" : ""})`);
-		for (let i = 0; i < Math.min(3, args.agents.length); i++) {
-			const a = args.agents[i];
-			const preview = truncateVisual(a.task, 40);
-			const model = a.model ? theme.fg("dim", ` [${a.model}]`) : "";
-			text += `\n  ${theme.fg("accent", a.name || `agent-${i + 1}`)}${model}${theme.fg("dim", ` ${preview}`)}`;
-		}
-		if (args.agents.length > 3) text += `\n  ${theme.fg("muted", `... +${args.agents.length - 3} more`)}`;
+			theme.fg("accent", `(${count} agent${count > 1 ? "s" : ""})`);
 		return new Text(text, 0, 0);
 	}
 	return new Text(theme.fg("toolTitle", theme.bold("spawn_agents")), 0, 0);
@@ -274,13 +271,27 @@ function isQueued(r: SingleResult): boolean {
 }
 
 /**
- * The collapsed transcript block: a quantified call header, then one small
- * block per agent on an OpenCode-style ├/└ tree — a quantified header line
- * (status, duration, tool count, tokens/cost, model when the call mixes
- * models) over an indented activity line (latest tool call while running,
- * first line of the answer once finished). Queued agents stay one-liners.
- * Single-agent calls degrade to a plain two-liner. The panel (alt+a) is the
- * live view; this stays a summary, not a competing log.
+ * A labeled divider — the call-level summary riding on the rule that
+ * separates header from content. `null` renders a plain rule.
+ */
+function labeledDivider(parts: string[] | null, theme: RenderTheme): string {
+	const width = terminalColumns() - 2;
+	if (!parts || parts.length === 0) return theme.fg("muted", "─".repeat(Math.max(4, width)));
+	const label = ` ${parts.join(" · ")} `;
+	const fill = width - label.length - 4;
+	if (fill < 2) return theme.fg("accent", label.trim());
+	return theme.fg("muted", "──") + theme.fg("accent", label) + theme.fg("muted", "─".repeat(fill));
+}
+
+/**
+ * The collapsed transcript block: under the one-line call header
+ * (`spawn_agents (N agents)`), a labeled divider carries the call-level
+ * summary, then one block per agent — a quantified header line (status,
+ * duration, tool count, tokens/cost, model when the call mixes models) over
+ * an indented line showing the task while queued, the latest tool call while
+ * running, or the first line of the answer once finished. Single-agent calls
+ * keep the divider plain (the one block already carries the stats). The
+ * panel (alt+a) is the live view; this stays a summary, not a competing log.
  */
 function scoreboardView(details: SubagentDetails, theme: RenderTheme): Text {
 	const results = details.results;
@@ -289,56 +300,37 @@ function scoreboardView(details: SubagentDetails, theme: RenderTheme): Text {
 	const failCount = results.length - running - successCount;
 	const isRunning = running > 0;
 
-	let text: string;
-	if (results.length === 1) {
-		const r = results[0];
-		const stats = isQueued(r) ? "queued" : headerStats(r);
-		text = `${statusGlyph(r, theme)} ${theme.fg("toolTitle", theme.bold(r.name))} ${theme.fg("dim", stats)}`;
-		if (!isQueued(r)) {
-			const activity = agentActivity(r, theme);
-			if (activity) text += `\n  ${truncateVisual(activity, terminalColumns() - 2)}`;
-		}
-	} else {
-		const headIcon = isRunning
-			? theme.fg("warning", "✻")
-			: failCount === 0
-				? theme.fg("success", "✓")
-				: successCount > 0
-					? theme.fg("warning", "◐")
-					: theme.fg("error", "✗");
-		const headParts = [
+	let dividerParts: string[] | null = null;
+	if (results.length > 1) {
+		dividerParts = [
 			isRunning ? `${results.length - running}/${results.length} done` : `${successCount}/${results.length}`,
 		];
-		if (!isRunning && failCount > 0) headParts.push(`${failCount} failed`);
-		headParts.push(formatDuration(callDuration(details)));
+		if (!isRunning && failCount > 0) dividerParts.push(`${failCount} failed`);
+		dividerParts.push(formatDuration(callDuration(details)));
 		if (!isRunning) {
 			const total = aggregateUsage(results);
 			const totalTools = results.reduce((n, r) => n + toolUseCount(r.messages), 0);
-			if (totalTools > 0) headParts.push(`${totalTools} tools`);
-			if (total.output) headParts.push(`↓${formatTokens(total.output)}`);
-			if (total.cost) headParts.push(`$${total.cost.toFixed(4)}`);
+			if (totalTools > 0) dividerParts.push(`${totalTools} tools`);
+			if (total.output) dividerParts.push(`↓${formatTokens(total.output)}`);
+			if (total.cost) dividerParts.push(`$${total.cost.toFixed(4)}`);
 		}
-		text = `${headIcon} ${theme.fg("toolTitle", theme.bold("spawn_agents"))} ${theme.fg("accent", headParts.join(" · "))}`;
+	}
+	let text = labeledDivider(dividerParts, theme);
 
-		// Label models only when the call mixes them — a uniform call would
-		// just repeat the parent's model on every block.
-		const models = new Set(results.map((r) => r.model).filter(Boolean));
-		const showModels = models.size > 1;
+	// Label models only when the call mixes them — a uniform call would
+	// just repeat the parent's model on every block.
+	const models = new Set(results.map((r) => r.model).filter(Boolean));
+	const showModels = models.size > 1;
 
-		for (let i = 0; i < results.length; i++) {
-			const r = results[i];
-			const last = i === results.length - 1;
-			const connector = theme.fg("muted", last ? "└─ " : "├─ ");
-			const cont = last ? "     " : theme.fg("muted", "│    ");
-			const stats = isQueued(r) ? "queued" : headerStats(r);
-			let header = `${connector}${statusGlyph(r, theme)} ${theme.fg("toolTitle", theme.bold(r.name))} ${theme.fg("dim", stats)}`;
-			if (showModels && r.model) header += ` ${theme.fg("dim", r.model.split("/").pop() ?? r.model)}`;
-			text += `\n${header}`;
-			if (!isQueued(r)) {
-				const activity = agentActivity(r, theme);
-				if (activity) text += `\n${cont}${truncateVisual(activity, terminalColumns() - 5)}`;
-			}
-		}
+	for (const r of results) {
+		const stats = isQueued(r) ? "queued" : headerStats(r);
+		let header = `${statusGlyph(r, theme)} ${theme.fg("toolTitle", theme.bold(r.name))} ${theme.fg("dim", stats)}`;
+		if (showModels && r.model) header += ` ${theme.fg("dim", r.model.split("/").pop() ?? r.model)}`;
+		text += `\n${header}`;
+		// Queued: the task itself is the preview (this is where the call-time
+		// task list went). Running: latest activity. Done: result first line.
+		const activity = isQueued(r) ? theme.fg("dim", r.task) : agentActivity(r, theme);
+		if (activity) text += `\n   ${truncateVisual(activity, terminalColumns() - 4)}`;
 	}
 	text += `\n${theme.fg("muted", isRunning ? "⎿ alt+a live details" : "⎿ alt+a timeline · ctrl+o expand")}`;
 	return new Text(text, 0, 0);
