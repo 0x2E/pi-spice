@@ -86,7 +86,8 @@ function isAgentRunning(result: SingleResult): boolean {
 }
 
 function statusIcon(result: SingleResult, theme: RenderTheme): string {
-	if (isAgentRunning(result)) return theme.fg("warning", "⏳");
+	if (isAgentRunning(result))
+		return result.messages.length === 0 ? theme.fg("muted", "·") : theme.fg("warning", "✻");
 	return isFailedResult(result) ? theme.fg("error", "✗") : theme.fg("success", "✓");
 }
 

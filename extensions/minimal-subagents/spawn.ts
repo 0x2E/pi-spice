@@ -30,6 +30,9 @@ export interface SingleResult {
 	task: string;
 	/** -1 while the agent is still running */
 	exitCode: number;
+	/** Wall-clock timestamps: call time to agent end (unset while running). */
+	startedAt: number;
+	endedAt?: number;
 	messages: Message[];
 	stderr: string;
 	usage: UsageStats;
@@ -162,6 +165,7 @@ export async function runSpec(
 		name: displayName,
 		task: spec.task,
 		exitCode: -1, // -1 = still running; real exit code set on close
+		startedAt: Date.now(),
 		messages: [],
 		stderr: "",
 		usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
@@ -281,6 +285,7 @@ export async function runSpec(
 	});
 
 	currentResult.exitCode = exitCode;
+	currentResult.endedAt = Date.now();
 	if (wasAborted) throw new Error("Subagent was aborted");
 	return currentResult;
 }

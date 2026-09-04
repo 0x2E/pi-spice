@@ -118,6 +118,7 @@ export default function (pi: ExtensionAPI) {
 					name: params.agents[i].name ?? `agent-${i + 1}`,
 					task: params.agents[i].task,
 					exitCode: -1, // -1 = still running
+					startedAt: Date.now(),
 					messages: [],
 					stderr: "",
 					usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
@@ -151,6 +152,7 @@ export default function (pi: ExtensionAPI) {
 					const partial = allResults[index];
 					partial.exitCode = 1;
 					partial.stopReason = "aborted";
+					partial.endedAt = Date.now();
 					return partial;
 				};
 				if (signal?.aborted) return abortPlaceholder();
