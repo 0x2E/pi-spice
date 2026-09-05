@@ -13,6 +13,8 @@ pi-spice: a monorepo of pi extensions published as individual npm packages. Each
 
 - Adding an extension needs no wiring — the `pi.extensions` globs and the publish-time copy pick it up. Add one row to the root `README.md` extension table; that table is the single source of truth.
 
+- An extension's description appears in several places — `package.json` `description`, the extension `README.md`, the root `README.md` table, the `index.ts` header. Keep them as consistent as possible: reuse the `package.json` description verbatim where it fits, and change all occurrences together.
+
 ## Versioning & Release
 
 - `@pi-spice/all` (in `packages/all/`) bundles every extension, so it rides every release. A PR touching anything under `extensions/**` adds a `.changeset/<name>.md` declaring every touched extension plus `@pi-spice/all` at the highest bumped level; CI (`.github/workflows/changeset-check.yml`) rejects PRs that skip this. New extensions start at `0.0.0`; their first changeset decides the initial version.
