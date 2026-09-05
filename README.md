@@ -12,7 +12,7 @@ pi install npm:@pi-spice/all
 
 | Extension | Core capability |
 | --- | --- |
-| [prefer-modern-cli](./extensions/prefer-modern-cli) | Nudges the agent toward modern CLI tools (`rg`, `fd`) over legacy `grep`/`find` |
+| [prefer-modern-cli](./extensions/prefer-modern-cli) | Prefer modern CLI tools such as `rg` and `fd` |
 | [thinking-preview](./extensions/thinking-preview) | Collapses streaming thinking blocks into a compact live preview |
 | [minimal-subagents](./extensions/minimal-subagents) | Creates sub-agents inline and runs them in parallel via one blocking tool |
 
