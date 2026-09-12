@@ -1,0 +1,78 @@
+# @pi-spice/sandbox
+
+OS-level sandboxing for pi's bash tool. Every bash command — including your
+own `!` commands — runs inside an OS-enforced sandbox (sandbox-exec on macOS,
+bubblewrap on Linux) via [`@anthropic-ai/sandbox-runtime`](https://www.npmjs.com/package/@anthropic-ai/sandbox-runtime),
+the runtime behind Claude Code's sandbox.
+
+## Install
+
+```bash
+pi install npm:@pi-spice/sandbox
+```
+
+## What it enforces
+
+- **Filesystem writes** are confined to the project directory and `/tmp`.
+- **Sensitive dotfolders** (`~/.ssh`, `~/.aws`, `~/.gnupg`) are unreadable.
+- **Network egress** only reaches a domain allowlist (npm / PyPI / GitHub by
+  default); everything else is blocked, with a local proxy handling allowed
+  domains.
+- **Deny-write patterns** keep secrets like `.env`, `*.pem`, `*.key` from
+  being overwritten. Note: on Linux (bubblewrap backend), `sandbox-runtime`
+  currently enforces **exact-path** `denyWrite` entries (e.g. `.env`) but not
+  glob patterns (`*.pem`); globs are kept for forward compatibility.
+
+## Toggle
+
+```bash
+pi --no-sandbox        # disable for this session
+```
+
+Or set `"enabled": false` in config.
+
+## Configuration
+
+Two config files, project takes precedence:
+
+- Global: `~/.pi/agent/extensions/sandbox.json`
+- Project: `<project>/.pi/sandbox.json`
+
+```json
+{
+	"enabled": true,
+	"network": {
+		"allowedDomains": ["github.com", "*.github.com", "registry.npmjs.org"],
+		"deniedDomains": []
+	},
+	"filesystem": {
+		"denyRead": ["~/.ssh", "~/.aws", "~/.gnupg"],
+		"allowWrite": [".", "/tmp"],
+		"denyWrite": [".env", ".env.*", "*.pem", "*.key"]
+	}
+}
+```
+
+Inside pi, `/sandbox` shows the active configuration.
+
+## Requirements
+
+| Platform | Notes |
+| --- | --- |
+| macOS | Works out of the box (built-in `sandbox-exec`) |
+| Linux | Requires `bubblewrap`, `socat`, `ripgrep` — e.g. `sudo apt install bubblewrap socat ripgrep` |
+| Windows | Unsupported; bash runs unsandboxed with a warning |
+
+## Threat model
+
+This is accident-and-exfiltration containment, not a hard security boundary
+against adversarial kernel-level exploits — it shares the host kernel by
+design. It protects against: accidental writes outside the project, stray
+`rm -rf`, prompt-injection-driven exfiltration to unexpected domains, and
+reading credential folders from bash. It does **not** protect against kernel
+0-days, out-of-sandbox processes (e.g. MCP servers), or secrets the agent
+reads into its own context.
+
+Known limitation (v1, matching pi's official sandbox example): if sandbox
+initialization fails (e.g. missing `bubblewrap` on Linux), bash falls back to
+unsandboxed execution with an error notification.
