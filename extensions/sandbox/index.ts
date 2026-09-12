@@ -9,7 +9,8 @@
  * to a configurable domain allowlist (npm/pypi/github by default).
  *
  * Toggle: `/sandbox on` / `/sandbox off` at runtime, or `--no-sandbox` flag,
- * or "enabled": false in config. Status bar shows the current state.
+ * or "enabled": false in config. A single status line ("sandbox on"/"sandbox off")
+ * is rendered above the input box.
  * Config files (project overrides global):
  *   - ~/.pi/agent/extensions/sandbox.json
  *   - <project>/.pi/sandbox.json
@@ -198,12 +199,13 @@ export default function (pi: ExtensionAPI) {
 
 	function refreshStatus(ctx: ExtensionContext): void {
 		try {
-			ctx.ui.setStatus(
+			ctx.ui.setWidget(
 				"sandbox",
-				sandboxEnabled ? "sandbox on" : "sandbox off",
+				[sandboxEnabled ? "sandbox on" : "sandbox off"],
+				{ placement: "aboveEditor" },
 			);
 		} catch {
-			// Status bar is unavailable in non-interactive mode
+			// Widgets are unavailable in non-interactive mode
 		}
 	}
 
@@ -293,7 +295,13 @@ export default function (pi: ExtensionAPI) {
 		await enableSandbox(ctx);
 	});
 
-	pi.on("session_shutdown", async () => {
+	pi.on("session_shutdown", async (_event, ctx) => {
+		try {
+			ctx.ui.setWidget("sandbox", undefined, { placement: "aboveEditor" });
+		} catch {
+			// Widgets are unavailable in non-interactive mode
+		}
+
 		if (sandboxInitialized) {
 			try {
 				await SandboxManager.reset();

@@ -34,10 +34,11 @@ Toggle at runtime (no config editing needed) — this is the recommended way:
 ```
 
 Toggling back on reuses the already-initialized sandbox runtime, so it is
-instant. The status bar shows the current state — just `sandbox on` or
-`sandbox off`. When initialization fails (e.g. missing `bubblewrap`/`socat`
-on Linux) or the platform is unsupported, the state stays `sandbox off` and
-the reason is shown via a notification and in `/sandbox`.
+instant. The current state is shown as a single line directly above the
+input box — `sandbox on` or `sandbox off`. When initialization fails
+(e.g. missing `bubblewrap`/`socat` on Linux) or the platform is
+unsupported, the state stays `sandbox off` and the reason is shown via a
+notification and in `/sandbox`.
 
 The command can also override the startup state — e.g. start with
 `--no-sandbox` and enable later with `/sandbox on`.
