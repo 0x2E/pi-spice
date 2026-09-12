@@ -8,7 +8,8 @@
  * (~/.ssh, ~/.aws, ~/.gnupg) are unreadable, and network egress is limited
  * to a configurable domain allowlist (npm/pypi/github by default).
  *
- * Toggle: `--no-sandbox` flag, or `"enabled": false` in config.
+ * Toggle: `/sandbox on` / `/sandbox off` at runtime, or `--no-sandbox` flag,
+ * or "enabled": false in config. Status bar shows the current state.
  * Config files (project overrides global):
  *   - ~/.pi/agent/extensions/sandbox.json
  *   - <project>/.pi/sandbox.json
@@ -36,6 +37,7 @@ import {
 	type BashOperations,
 	CONFIG_DIR_NAME,
 	type ExtensionAPI,
+	type ExtensionContext,
 	createBashTool,
 	getAgentDir,
 } from "@earendil-works/pi-coding-agent";
@@ -192,6 +194,75 @@ export default function (pi: ExtensionAPI) {
 
 	let sandboxEnabled = false;
 	let sandboxInitialized = false;
+	let initError: string | null = null;
+	let lastConfig: SandboxConfig = DEFAULT_CONFIG;
+
+	function refreshStatus(ctx: ExtensionContext): void {
+		try {
+			if (sandboxEnabled) {
+				const networkCount = lastConfig.network?.allowedDomains?.length ?? 0;
+				const writeCount = lastConfig.filesystem?.allowWrite?.length ?? 0;
+				ctx.ui.setStatus(
+					"sandbox",
+					ctx.ui.theme.fg(
+						"success",
+						`🔒 sandbox: on · ${networkCount} domains · ${writeCount} write paths`,
+					),
+				);
+			} else if (initError) {
+				ctx.ui.setStatus(
+					"sandbox",
+					ctx.ui.theme.fg("warning", `🔒 sandbox: off (${initError})`),
+				);
+			} else {
+				ctx.ui.setStatus(
+					"sandbox",
+					ctx.ui.theme.fg("muted", "🔒 sandbox: off"),
+				);
+			}
+		} catch {
+			// Status bar is unavailable in non-interactive mode
+		}
+	}
+
+	async function enableSandbox(ctx: ExtensionContext): Promise<void> {
+		const platform = process.platform;
+		if (platform !== "darwin" && platform !== "linux") {
+			initError = `unsupported on ${platform}`;
+			ctx.ui.notify(`Sandbox not supported on ${platform}`, "warning");
+			refreshStatus(ctx);
+			return;
+		}
+
+		const config = loadConfig(ctx.cwd);
+
+		if (!sandboxInitialized) {
+			try {
+				await SandboxManager.initialize({
+					network: config.network,
+					filesystem: config.filesystem,
+				});
+				sandboxInitialized = true;
+			} catch (err) {
+				initError = err instanceof Error ? err.message : String(err);
+				ctx.ui.notify(`Sandbox initialization failed: ${initError}`, "error");
+				refreshStatus(ctx);
+				return;
+			}
+		}
+
+		initError = null;
+		lastConfig = config;
+		sandboxEnabled = true;
+		refreshStatus(ctx);
+		ctx.ui.notify("Sandbox enabled", "info");
+	}
+
+	function disableSandbox(ctx: ExtensionContext): void {
+		sandboxEnabled = false;
+		refreshStatus(ctx);
+		ctx.ui.notify("Sandbox disabled — bash now runs unsandboxed", "warning");
+	}
 
 	pi.registerTool({
 		...localBash,
@@ -218,7 +289,11 @@ export default function (pi: ExtensionAPI) {
 
 		if (noSandbox) {
 			sandboxEnabled = false;
-			ctx.ui.notify("Sandbox disabled via --no-sandbox", "warning");
+			ctx.ui.notify(
+				"Sandbox disabled via --no-sandbox (toggle with /sandbox on)",
+				"warning",
+			);
+			refreshStatus(ctx);
 			return;
 		}
 
@@ -226,43 +301,15 @@ export default function (pi: ExtensionAPI) {
 
 		if (!config.enabled) {
 			sandboxEnabled = false;
-			ctx.ui.notify("Sandbox disabled via config", "info");
-			return;
-		}
-
-		const platform = process.platform;
-		if (platform !== "darwin" && platform !== "linux") {
-			sandboxEnabled = false;
-			ctx.ui.notify(`Sandbox not supported on ${platform}`, "warning");
-			return;
-		}
-
-		try {
-			await SandboxManager.initialize({
-				network: config.network,
-				filesystem: config.filesystem,
-			});
-
-			sandboxEnabled = true;
-			sandboxInitialized = true;
-
-			const networkCount = config.network?.allowedDomains?.length ?? 0;
-			const writeCount = config.filesystem?.allowWrite?.length ?? 0;
-			ctx.ui.setStatus(
-				"sandbox",
-				ctx.ui.theme.fg(
-					"accent",
-					`🔒 Sandbox: ${networkCount} domains, ${writeCount} write paths`,
-				),
-			);
-			ctx.ui.notify("Sandbox initialized", "info");
-		} catch (err) {
-			sandboxEnabled = false;
 			ctx.ui.notify(
-				`Sandbox initialization failed: ${err instanceof Error ? err.message : err}`,
-				"error",
+				"Sandbox disabled via config (toggle with /sandbox on)",
+				"info",
 			);
+			refreshStatus(ctx);
+			return;
 		}
+
+		await enableSandbox(ctx);
 	});
 
 	pi.on("session_shutdown", async () => {
@@ -276,16 +323,38 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.registerCommand("sandbox", {
-		description: "Show sandbox configuration",
-		handler: async (_args, ctx) => {
-			if (!sandboxEnabled) {
-				ctx.ui.notify("Sandbox is disabled", "info");
+		description: "Show sandbox status; `on`/`off` toggles it for this session",
+		getArgumentCompletions: (prefix) =>
+			["on", "off"]
+				.filter((v) => v.startsWith(prefix.toLowerCase()))
+				.map((v) => ({ value: v, label: v })),
+		handler: async (args, ctx) => {
+			const action = args.trim().toLowerCase();
+
+			if (action === "on") {
+				await enableSandbox(ctx);
+				return;
+			}
+			if (action === "off") {
+				disableSandbox(ctx);
+				return;
+			}
+			if (action) {
+				ctx.ui.notify(
+					`Unknown argument "${args.trim()}" — usage: /sandbox [on|off]`,
+					"error",
+				);
 				return;
 			}
 
 			const config = loadConfig(ctx.cwd);
+			const state = sandboxEnabled
+				? "on"
+				: initError
+					? `off (${initError})`
+					: "off";
 			const lines = [
-				"Sandbox Configuration:",
+				`Sandbox: ${state} (toggle: /sandbox on | /sandbox off)`,
 				"",
 				"Network:",
 				`  Allowed: ${config.network?.allowedDomains?.join(", ") || "(none)"}`,

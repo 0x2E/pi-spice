@@ -25,11 +25,32 @@ pi install npm:@pi-spice/sandbox
 
 ## Toggle
 
-```bash
-pi --no-sandbox        # disable for this session
+Toggle at runtime (no config editing needed) — this is the recommended way:
+
+```
+/sandbox on      # enable for this session (initializes the sandbox on demand)
+/sandbox off     # disable — bash runs unsandboxed for the rest of the session
+/sandbox         # show status + effective configuration
 ```
 
-Or set `"enabled": false` in config.
+Toggling back on reuses the already-initialized sandbox runtime, so it is
+instant. The status bar always shows the current state:
+
+- `🔒 sandbox: on · 10 domains · 2 write paths` (green)
+- `🔒 sandbox: off` (muted) — disabled via flag/config/`/sandbox off`
+- `🔒 sandbox: off (<reason>)` (yellow) — initialization failed (e.g. missing
+  `bubblewrap`/`socat` on Linux) or unsupported platform
+
+The command can also override the startup state — e.g. start with
+`--no-sandbox` and enable later with `/sandbox on`.
+
+Session startup defaults (also available):
+
+```bash
+pi --no-sandbox        # start with the sandbox off
+```
+
+Or set `"enabled": false` in config for a persistent default.
 
 ## Configuration
 
@@ -53,7 +74,8 @@ Two config files, project takes precedence:
 }
 ```
 
-Inside pi, `/sandbox` shows the active configuration.
+Inside pi, `/sandbox` shows the active configuration, and `/sandbox on` /
+`/sandbox off` toggle the sandbox for the current session.
 
 ## Requirements
 
