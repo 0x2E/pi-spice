@@ -195,31 +195,13 @@ export default function (pi: ExtensionAPI) {
 	let sandboxEnabled = false;
 	let sandboxInitialized = false;
 	let initError: string | null = null;
-	let lastConfig: SandboxConfig = DEFAULT_CONFIG;
 
 	function refreshStatus(ctx: ExtensionContext): void {
 		try {
-			if (sandboxEnabled) {
-				const networkCount = lastConfig.network?.allowedDomains?.length ?? 0;
-				const writeCount = lastConfig.filesystem?.allowWrite?.length ?? 0;
-				ctx.ui.setStatus(
-					"sandbox",
-					ctx.ui.theme.fg(
-						"success",
-						`🔒 sandbox: on · ${networkCount} domains · ${writeCount} write paths`,
-					),
-				);
-			} else if (initError) {
-				ctx.ui.setStatus(
-					"sandbox",
-					ctx.ui.theme.fg("warning", `🔒 sandbox: off (${initError})`),
-				);
-			} else {
-				ctx.ui.setStatus(
-					"sandbox",
-					ctx.ui.theme.fg("muted", "🔒 sandbox: off"),
-				);
-			}
+			ctx.ui.setStatus(
+				"sandbox",
+				sandboxEnabled ? "sandbox on" : "sandbox off",
+			);
 		} catch {
 			// Status bar is unavailable in non-interactive mode
 		}
@@ -252,7 +234,6 @@ export default function (pi: ExtensionAPI) {
 		}
 
 		initError = null;
-		lastConfig = config;
 		sandboxEnabled = true;
 		refreshStatus(ctx);
 		ctx.ui.notify("Sandbox enabled", "info");
