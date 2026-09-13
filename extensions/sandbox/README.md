@@ -92,7 +92,6 @@ allowlists translate directly.
 The default allowlist covers npm, PyPI (including `files.pythonhosted.org`
 for wheels), Go modules (`proxy.golang.org`, `sum.golang.org`), and Rust
 crates (`crates.io`, `index.crates.io`, `static.crates.io`), plus GitHub.
-China mirrors (e.g. `goproxy.cn`, `rsproxy.cn`) can be added the same way.
 
 Inside pi, `/sandbox` shows the active configuration, and `/sandbox on` /
 `/sandbox off` toggle the sandbox for the current session.
