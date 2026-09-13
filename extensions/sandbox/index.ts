@@ -191,15 +191,24 @@ export default function (pi: ExtensionAPI) {
 	const projectCwd = process.cwd();
 	const hostBash = createBashTool(projectCwd);
 
-	let sandboxEnabled = false;
-	let sandboxInitialized = false;
-	let initError: string | null = null;
+	/**
+	 * Aggregate sandbox state — one concept instead of loose travelling flags
+	 * (review: Data Clumps). `tool`/`ops` are built once per initialization and
+	 * reused by both the bash tool override and the user_bash hook.
+	 */
+	const sandbox = {
+		enabled: false,
+		initialized: false,
+		initError: null as string | null,
+		ops: null as BashOperations | null,
+		tool: null as ReturnType<typeof createBashTool> | null,
+	};
 
 	function refreshStatus(ctx: ExtensionContext): void {
 		try {
 			ctx.ui.setWidget(
 				"sandbox",
-				[sandboxEnabled ? "sandbox on" : "sandbox off"],
+				[sandbox.enabled ? "sandbox on" : "sandbox off"],
 				{ placement: "aboveEditor" },
 			);
 		} catch {
@@ -210,36 +219,45 @@ export default function (pi: ExtensionAPI) {
 	async function enableSandbox(ctx: ExtensionContext): Promise<void> {
 		const platform = process.platform;
 		if (platform !== "darwin" && platform !== "linux") {
-			initError = `unsupported on ${platform}`;
+			sandbox.initError = `unsupported on ${platform}`;
 			ctx.ui.notify(`Sandbox not supported on ${platform}`, "warning");
 			refreshStatus(ctx);
 			return;
 		}
 
+		// Config is read fresh on every enable; re-enabling within a session
+		// resets the runtime so config edits take effect (review: stale config).
 		const config = loadConfig(ctx.cwd);
 
-		if (!sandboxInitialized) {
-			try {
-				await SandboxManager.initialize({
-					network: config.network,
-					filesystem: config.filesystem,
-				});
-				sandboxInitialized = true;
-			} catch (err) {
-				initError = err instanceof Error ? err.message : String(err);
-				ctx.ui.notify(`Sandbox initialization failed: ${initError}`, "error");
-				refreshStatus(ctx);
-				return;
+		try {
+			if (sandbox.initialized) {
+				await SandboxManager.reset();
 			}
+			await SandboxManager.initialize({
+				network: config.network,
+				filesystem: config.filesystem,
+			});
+			sandbox.initialized = true;
+			sandbox.ops = createSandboxedBashOps();
+			sandbox.tool = createBashTool(projectCwd, { operations: sandbox.ops });
+		} catch (err) {
+			sandbox.enabled = false;
+			sandbox.initialized = false;
+			sandbox.ops = null;
+			sandbox.tool = null;
+			sandbox.initError = err instanceof Error ? err.message : String(err);
+			ctx.ui.notify(`Sandbox initialization failed: ${sandbox.initError}`, "error");
+			refreshStatus(ctx);
+			return;
 		}
 
-		initError = null;
-		sandboxEnabled = true;
+		sandbox.initError = null;
+		sandbox.enabled = true;
 		refreshStatus(ctx);
 	}
 
 	function disableSandbox(ctx: ExtensionContext): void {
-		sandboxEnabled = false;
+		sandbox.enabled = false;
 		refreshStatus(ctx);
 	}
 
@@ -247,27 +265,23 @@ export default function (pi: ExtensionAPI) {
 		...hostBash,
 		label: "bash (sandboxed)",
 		async execute(id, params, signal, onUpdate, _ctx) {
-			if (!sandboxEnabled || !sandboxInitialized) {
+			if (!sandbox.enabled || !sandbox.tool) {
 				return hostBash.execute(id, params, signal, onUpdate);
 			}
-
-			const sandboxedBash = createBashTool(projectCwd, {
-				operations: createSandboxedBashOps(),
-			});
-			return sandboxedBash.execute(id, params, signal, onUpdate);
+			return sandbox.tool.execute(id, params, signal, onUpdate);
 		},
 	});
 
 	pi.on("user_bash", () => {
-		if (!sandboxEnabled || !sandboxInitialized) return;
-		return { operations: createSandboxedBashOps() };
+		if (!sandbox.enabled || !sandbox.ops) return;
+		return { operations: sandbox.ops };
 	});
 
 	pi.on("session_start", async (_event, ctx) => {
 		const noSandbox = pi.getFlag("no-sandbox") as boolean;
 
 		if (noSandbox) {
-			sandboxEnabled = false;
+			sandbox.enabled = false;
 			refreshStatus(ctx);
 			return;
 		}
@@ -275,7 +289,7 @@ export default function (pi: ExtensionAPI) {
 		const config = loadConfig(ctx.cwd);
 
 		if (!config.enabled) {
-			sandboxEnabled = false;
+			sandbox.enabled = false;
 			refreshStatus(ctx);
 			return;
 		}
@@ -290,7 +304,7 @@ export default function (pi: ExtensionAPI) {
 			// Widgets are unavailable in non-interactive mode
 		}
 
-		if (sandboxInitialized) {
+		if (sandbox.initialized) {
 			try {
 				await SandboxManager.reset();
 			} catch {
@@ -325,10 +339,10 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			const config = loadConfig(ctx.cwd);
-			const state = sandboxEnabled
+			const state = sandbox.enabled
 				? "on"
-				: initError
-					? `off (${initError})`
+				: sandbox.initError
+					? `off (${sandbox.initError})`
 					: "off";
 			const fmt = (list?: string[]) => list?.join(", ") || "(none)";
 			const lines = [
