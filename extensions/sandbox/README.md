@@ -5,6 +5,11 @@ own `!` commands — runs inside an OS-enforced sandbox (sandbox-exec on macOS,
 bubblewrap on Linux) via [`@anthropic-ai/sandbox-runtime`](https://www.npmjs.com/package/@anthropic-ai/sandbox-runtime),
 the runtime behind Claude Code's sandbox.
 
+This is the first pi-spice extension that intentionally carries a runtime
+dependency — a deliberate, documented deviation from the repo's
+zero-dependency convention: security-boundary code should be battle-tested,
+not hand-rolled.
+
 ## Install
 
 ```bash
@@ -33,12 +38,12 @@ Toggle at runtime (no config editing needed) — this is the recommended way:
 /sandbox         # show status + effective configuration
 ```
 
-Toggling back on reuses the already-initialized sandbox runtime, so it is
-instant. The current state is shown as a single line directly above the
-input box — `sandbox on` or `sandbox off`. When initialization fails
-(e.g. missing `bubblewrap`/`socat` on Linux) or the platform is
-unsupported, the state stays `sandbox off` and the reason is shown via a
-notification and in `/sandbox`.
+Toggling back on re-initializes the sandbox with freshly read config, so
+mid-session config edits apply on the next `/sandbox on`. The current state
+is shown as a single line directly above the input box — `sandbox on` or
+`sandbox off`. When initialization fails (e.g. missing `bubblewrap`/`socat`
+on Linux) or the platform is unsupported, the state stays `sandbox off` and
+the reason is shown via a notification and in `/sandbox`.
 
 The command can also override the startup state — e.g. start with
 `--no-sandbox` and enable later with `/sandbox on`.
@@ -76,10 +81,9 @@ Two config files, project takes precedence:
 Inside pi, `/sandbox` shows the active configuration, and `/sandbox on` /
 `/sandbox off` toggle the sandbox for the current session.
 
-Note: config files are read when the sandbox initializes — at startup or on
-the first `/sandbox on`. Toggling off and back on within a session reuses the
-initialized runtime and does **not** re-read config files; restart pi to
-apply config changes.
+Note: config files are re-read every time the sandbox initializes — at
+startup and on every `/sandbox on`. Mid-session config edits take effect on
+the next toggle (or restart).
 
 ## Requirements
 
@@ -89,15 +93,11 @@ apply config changes.
 | Linux | Requires `bubblewrap`, `socat`, `ripgrep` — e.g. `sudo apt install bubblewrap socat ripgrep` |
 | Windows | Unsupported; bash runs unsandboxed with a warning |
 
-## Threat model
+## Threat model & limitations
 
-This is accident-and-exfiltration containment, not a hard security boundary
-against adversarial kernel-level exploits — it shares the host kernel by
-design. It protects against: accidental writes outside the project, stray
-`rm -rf`, prompt-injection-driven exfiltration to unexpected domains, and
-reading credential folders from bash. It does **not** protect against kernel
-0-days, out-of-sandbox processes (e.g. MCP servers), or secrets the agent
-reads into its own context.
+This is accident-and-exfiltration containment, not a hard boundary against
+adversarial kernel-level exploits (it shares the host kernel by design) —
+see the header of `index.ts` for the full threat model.
 
 Known limitation (v1, matching pi's official sandbox example): if sandbox
 initialization fails (e.g. missing `bubblewrap` on Linux), bash falls back to

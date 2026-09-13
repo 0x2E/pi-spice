@@ -25,6 +25,16 @@
  * Known limitation (v1, matches pi's official sandbox example): if sandbox
  * initialization fails, bash falls back to unsandboxed execution with an
  * error notification. Fail-closed behavior is a planned iteration.
+ *
+ * Threat model: accident-and-exfiltration containment, not a hard boundary
+ * against adversarial kernel-level exploits — the sandbox shares the host
+ * kernel by design. Protects against: accidental writes outside the project,
+ * stray `rm -rf`, prompt-injection-driven exfiltration to unexpected
+ * domains, and reading credential folders from bash. Does NOT protect
+ * against kernel 0-days, out-of-sandbox processes (e.g. MCP servers), or
+ * secrets the agent reads into its own context. The runtime dependency on
+ * @anthropic-ai/sandbox-runtime is a deliberate deviation from the repo's
+ * zero-dependency convention: security-boundary code should be battle-tested.
  */
 
 import { spawn, type ChildProcess } from "node:child_process";
