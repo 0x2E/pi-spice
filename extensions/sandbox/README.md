@@ -93,13 +93,6 @@ The default allowlist covers npm, PyPI (including `files.pythonhosted.org`
 for wheels), Go modules (`proxy.golang.org`, `sum.golang.org`), and Rust
 crates (`crates.io`, `index.crates.io`, `static.crates.io`), plus GitHub.
 
-Inside pi, `/sandbox` shows the active configuration, and `/sandbox on` /
-`/sandbox off` toggle the sandbox for the current session.
-
-Note: config files are re-read every time the sandbox initializes — at
-startup and on every `/sandbox on`. Mid-session config edits take effect on
-the next toggle (or restart).
-
 ## Requirements
 
 | Platform | Notes |
