@@ -40,10 +40,11 @@ Toggle at runtime (no config editing needed) — this is the recommended way:
 
 Toggling back on re-initializes the sandbox with freshly read config, so
 mid-session config edits apply on the next `/sandbox on`. The current state
-is shown as a single line directly above the input box — `sandbox on` or
-`sandbox off`. When initialization fails (e.g. missing `bubblewrap`/`socat`
-on Linux) or the platform is unsupported, the state stays `sandbox off` and
-the reason is shown via a notification and in `/sandbox`.
+is shown as a single dim line directly above the input box — `sandbox on` or
+`sandbox off`, matching the UI chrome. When initialization fails (e.g.
+missing `bubblewrap`/`socat` on Linux) or the platform is unsupported, the
+line shows `sandbox off (unavailable)`; the specific reason appears in the
+error notification and in `/sandbox`.
 
 The command can also override the startup state — e.g. start with
 `--no-sandbox` and enable later with `/sandbox on`.

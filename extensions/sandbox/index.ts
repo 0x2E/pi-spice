@@ -52,6 +52,7 @@ import {
 	createBashTool,
 	getAgentDir,
 } from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
 
 interface SandboxConfig extends SandboxRuntimeConfig {
 	enabled?: boolean;
@@ -215,10 +216,17 @@ export default function (pi: ExtensionAPI) {
 	};
 
 	function refreshStatus(ctx: ExtensionContext): void {
+		// Dim color matches the surrounding UI chrome (footer lines) so the
+		// status reads at a glance without grabbing attention.
+		const text = sandbox.enabled
+			? "sandbox on"
+			: sandbox.initError
+				? "sandbox off (unavailable)"
+				: "sandbox off";
 		try {
 			ctx.ui.setWidget(
 				"sandbox",
-				[sandbox.enabled ? "sandbox on" : "sandbox off"],
+				(_tui, theme) => new Text(theme.fg("dim", text), 1, 0),
 				{ placement: "aboveEditor" },
 			);
 		} catch {
