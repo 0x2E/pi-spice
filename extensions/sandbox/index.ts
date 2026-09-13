@@ -188,8 +188,8 @@ export default function (pi: ExtensionAPI) {
 		default: false,
 	});
 
-	const localCwd = process.cwd();
-	const localBash = createBashTool(localCwd);
+	const projectCwd = process.cwd();
+	const hostBash = createBashTool(projectCwd);
 
 	let sandboxEnabled = false;
 	let sandboxInitialized = false;
@@ -236,24 +236,22 @@ export default function (pi: ExtensionAPI) {
 		initError = null;
 		sandboxEnabled = true;
 		refreshStatus(ctx);
-		ctx.ui.notify("Sandbox enabled", "info");
 	}
 
 	function disableSandbox(ctx: ExtensionContext): void {
 		sandboxEnabled = false;
 		refreshStatus(ctx);
-		ctx.ui.notify("Sandbox disabled — bash now runs unsandboxed", "warning");
 	}
 
 	pi.registerTool({
-		...localBash,
+		...hostBash,
 		label: "bash (sandboxed)",
 		async execute(id, params, signal, onUpdate, _ctx) {
 			if (!sandboxEnabled || !sandboxInitialized) {
-				return localBash.execute(id, params, signal, onUpdate);
+				return hostBash.execute(id, params, signal, onUpdate);
 			}
 
-			const sandboxedBash = createBashTool(localCwd, {
+			const sandboxedBash = createBashTool(projectCwd, {
 				operations: createSandboxedBashOps(),
 			});
 			return sandboxedBash.execute(id, params, signal, onUpdate);
@@ -270,10 +268,6 @@ export default function (pi: ExtensionAPI) {
 
 		if (noSandbox) {
 			sandboxEnabled = false;
-			ctx.ui.notify(
-				"Sandbox disabled via --no-sandbox (toggle with /sandbox on)",
-				"warning",
-			);
 			refreshStatus(ctx);
 			return;
 		}
@@ -282,10 +276,6 @@ export default function (pi: ExtensionAPI) {
 
 		if (!config.enabled) {
 			sandboxEnabled = false;
-			ctx.ui.notify(
-				"Sandbox disabled via config (toggle with /sandbox on)",
-				"info",
-			);
 			refreshStatus(ctx);
 			return;
 		}
