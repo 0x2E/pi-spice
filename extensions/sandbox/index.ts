@@ -12,7 +12,7 @@
  * or "enabled": false in config. A single status line ("sandbox on"/"sandbox off")
  * is rendered above the input box.
  * Config files (project overrides global):
- *   - ~/.pi/agent/extensions/sandbox.json
+ *   - ~/.pi/agent/sandbox.json
  *   - <project>/.pi/sandbox.json
  *
  * Install: pi install npm:@pi-spice/sandbox
@@ -68,6 +68,12 @@ const DEFAULT_CONFIG: SandboxConfig = {
 			"registry.yarnpkg.com",
 			"pypi.org",
 			"*.pypi.org",
+			"files.pythonhosted.org",
+			"proxy.golang.org",
+			"sum.golang.org",
+			"crates.io",
+			"index.crates.io",
+			"static.crates.io",
 			"github.com",
 			"*.github.com",
 			"api.github.com",
@@ -84,7 +90,7 @@ const DEFAULT_CONFIG: SandboxConfig = {
 
 function loadConfig(cwd: string): SandboxConfig {
 	const projectConfigPath = join(cwd, CONFIG_DIR_NAME, "sandbox.json");
-	const globalConfigPath = join(getAgentDir(), "extensions", "sandbox.json");
+	const globalConfigPath = join(getAgentDir(), "sandbox.json");
 
 	let globalConfig: Partial<SandboxConfig> = {};
 	let projectConfig: Partial<SandboxConfig> = {};

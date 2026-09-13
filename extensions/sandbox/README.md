@@ -5,11 +5,6 @@ own `!` commands — runs inside an OS-enforced sandbox (sandbox-exec on macOS,
 bubblewrap on Linux) via [`@anthropic-ai/sandbox-runtime`](https://www.npmjs.com/package/@anthropic-ai/sandbox-runtime),
 the runtime behind Claude Code's sandbox.
 
-This is the first pi-spice extension that intentionally carries a runtime
-dependency — a deliberate, documented deviation from the repo's
-zero-dependency convention: security-boundary code should be battle-tested,
-not hand-rolled.
-
 ## Install
 
 ```bash
@@ -61,14 +56,29 @@ Or set `"enabled": false` in config for a persistent default.
 
 Two config files, project takes precedence:
 
-- Global: `~/.pi/agent/extensions/sandbox.json`
+- Global: `~/.pi/agent/sandbox.json`
 - Project: `<project>/.pi/sandbox.json`
+
+The `network` / `filesystem` fields use the same vocabulary as Claude
+Code's `sandbox` settings (both are backed by `sandbox-runtime`), so
+allowlists translate directly.
 
 ```json
 {
 	"enabled": true,
 	"network": {
-		"allowedDomains": ["github.com", "*.github.com", "registry.npmjs.org"],
+		"allowedDomains": [
+			"github.com",
+			"*.github.com",
+			"registry.npmjs.org",
+			"pypi.org",
+			"files.pythonhosted.org",
+			"proxy.golang.org",
+			"sum.golang.org",
+			"crates.io",
+			"index.crates.io",
+			"static.crates.io"
+		],
 		"deniedDomains": []
 	},
 	"filesystem": {
@@ -78,6 +88,11 @@ Two config files, project takes precedence:
 	}
 }
 ```
+
+The default allowlist covers npm, PyPI (including `files.pythonhosted.org`
+for wheels), Go modules (`proxy.golang.org`, `sum.golang.org`), and Rust
+crates (`crates.io`, `index.crates.io`, `static.crates.io`), plus GitHub.
+China mirrors (e.g. `goproxy.cn`, `rsproxy.cn`) can be added the same way.
 
 Inside pi, `/sandbox` shows the active configuration, and `/sandbox on` /
 `/sandbox off` toggle the sandbox for the current session.
