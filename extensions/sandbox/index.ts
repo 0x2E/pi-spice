@@ -27,7 +27,7 @@
  * error notification. Fail-closed behavior is a planned iteration.
  */
 
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
@@ -114,6 +114,16 @@ function mergeConfig(
 	return result;
 }
 
+/** Kill a detached child's whole process group, falling back to the child alone. */
+function killGroup(child: ChildProcess): void {
+	if (!child.pid) return;
+	try {
+		process.kill(-child.pid, "SIGKILL");
+	} catch {
+		child.kill("SIGKILL");
+	}
+}
+
 function createSandboxedBashOps(): BashOperations {
 	return {
 		async exec(command, cwd, { onData, signal, timeout }) {
@@ -136,13 +146,7 @@ function createSandboxedBashOps(): BashOperations {
 				if (timeout !== undefined && timeout > 0) {
 					timeoutHandle = setTimeout(() => {
 						timedOut = true;
-						if (child.pid) {
-							try {
-								process.kill(-child.pid, "SIGKILL");
-							} catch {
-								child.kill("SIGKILL");
-							}
-						}
+						killGroup(child);
 					}, timeout * 1000);
 				}
 
@@ -155,13 +159,7 @@ function createSandboxedBashOps(): BashOperations {
 				});
 
 				const onAbort = () => {
-					if (child.pid) {
-						try {
-							process.kill(-child.pid, "SIGKILL");
-						} catch {
-							child.kill("SIGKILL");
-						}
-					}
+					killGroup(child);
 				};
 
 				signal?.addEventListener("abort", onAbort, { once: true });
@@ -342,17 +340,18 @@ export default function (pi: ExtensionAPI) {
 				: initError
 					? `off (${initError})`
 					: "off";
+			const fmt = (list?: string[]) => list?.join(", ") || "(none)";
 			const lines = [
 				`Sandbox: ${state} (toggle: /sandbox on | /sandbox off)`,
 				"",
 				"Network:",
-				`  Allowed: ${config.network?.allowedDomains?.join(", ") || "(none)"}`,
-				`  Denied: ${config.network?.deniedDomains?.join(", ") || "(none)"}`,
+				`  Allowed: ${fmt(config.network?.allowedDomains)}`,
+				`  Denied: ${fmt(config.network?.deniedDomains)}`,
 				"",
 				"Filesystem:",
-				`  Deny Read: ${config.filesystem?.denyRead?.join(", ") || "(none)"}`,
-				`  Allow Write: ${config.filesystem?.allowWrite?.join(", ") || "(none)"}`,
-				`  Deny Write: ${config.filesystem?.denyWrite?.join(", ") || "(none)"}`,
+				`  Deny Read: ${fmt(config.filesystem?.denyRead)}`,
+				`  Allow Write: ${fmt(config.filesystem?.allowWrite)}`,
+				`  Deny Write: ${fmt(config.filesystem?.denyWrite)}`,
 			];
 			ctx.ui.notify(lines.join("\n"), "info");
 		},

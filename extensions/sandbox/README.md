@@ -76,6 +76,11 @@ Two config files, project takes precedence:
 Inside pi, `/sandbox` shows the active configuration, and `/sandbox on` /
 `/sandbox off` toggle the sandbox for the current session.
 
+Note: config files are read when the sandbox initializes — at startup or on
+the first `/sandbox on`. Toggling off and back on within a session reuses the
+initialized runtime and does **not** re-read config files; restart pi to
+apply config changes.
+
 ## Requirements
 
 | Platform | Notes |
