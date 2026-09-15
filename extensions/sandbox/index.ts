@@ -8,12 +8,22 @@
  * (~/.ssh, ~/.aws, ~/.gnupg) are unreadable, and network egress is limited
  * to a configurable domain allowlist (npm/pypi/github by default).
  *
+ * Sandboxed commands delegate to pi's own local bash backend, so they keep
+ * full parity with the built-in bash tool: env/session variables (PI_*),
+ * the ~/.pi/agent/bin PATH entry, timeout/abort handling, and process-tree
+ * cleanup on kill.
+ *
  * Toggle: `/sandbox on` / `/sandbox off` at runtime, or `--no-sandbox` flag,
- * or "enabled": false in config. A single status line ("sandbox on"/"sandbox off")
- * is rendered above the input box.
- * Config files (project overrides global):
+ * or "enabled": false in config. `/sandbox off` tears the runtime down
+ * (host-side proxy and bridges) instead of leaving it listening. A single
+ * status line ("sandbox on"/"sandbox off") is rendered above the input box.
+ * Config files (project overrides global; config arrays replace the
+ * defaults wholesale):
  *   - ~/.pi/agent/sandbox.json
- *   - <project>/.pi/sandbox.json
+ *   - <project>/.pi/sandbox.json — only honored when the project is
+ *     trusted (ctx.isProjectTrusted()), so an untrusted checkout cannot
+ *     weaken the sandbox for itself, and the file itself is write-denied
+ *     inside the sandbox so bash cannot weaken it for the next session.
  *
  * Install: pi install npm:@pi-spice/sandbox
  * Quick test: pi -e ./extensions/sandbox
@@ -24,7 +34,9 @@
  *
  * Known limitation (v1, matches pi's official sandbox example): if sandbox
  * initialization fails, bash falls back to unsandboxed execution with an
- * error notification. Fail-closed behavior is a planned iteration.
+ * error notification. Fail-closed behavior is a planned iteration. Bash
+ * calls that arrive while initialization is still in flight wait for it
+ * rather than racing to unsandboxed execution.
  *
  * Threat model: accident-and-exfiltration containment, not a hard boundary
  * against adversarial kernel-level exploits — the sandbox shares the host
@@ -37,9 +49,8 @@
  * zero-dependency convention: security-boundary code should be battle-tested.
  */
 
-import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import {
 	SandboxManager,
 	type SandboxRuntimeConfig,
@@ -50,6 +61,7 @@ import {
 	type ExtensionAPI,
 	type ExtensionContext,
 	createBashTool,
+	createLocalBashOperations,
 	getAgentDir,
 } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
@@ -84,32 +96,93 @@ const DEFAULT_CONFIG: SandboxConfig = {
 	filesystem: {
 		denyRead: ["~/.ssh", "~/.aws", "~/.gnupg"],
 		allowWrite: [".", "/tmp"],
-		denyWrite: [".env", ".env.*", "*.pem", "*.key"],
+		// Root-level entries plus `**/` variants so nested secrets
+		// (packages/x/.env, config/*.key, …) are covered too. On Linux
+		// (bubblewrap) sandbox-runtime enforces exact paths only, so there
+		// just the root-level `.env` applies; the glob entries are skipped.
+		denyWrite: [
+			".env",
+			".env.*",
+			"*.pem",
+			"*.key",
+			"**/.env",
+			"**/.env.*",
+			"**/*.pem",
+			"**/*.key",
+		],
 	},
 };
 
-function loadConfig(cwd: string): SandboxConfig {
-	const projectConfigPath = join(cwd, CONFIG_DIR_NAME, "sandbox.json");
-	const globalConfigPath = join(getAgentDir(), "sandbox.json");
+/**
+ * Validate the shape of a config file. Returns the parsed object, or null
+ * when it is not a JSON object with the expected keys — a typo'd config
+ * should produce one clear warning up front, not a per-command crash.
+ */
+function validateConfigShape(
+	path: string,
+	parsed: unknown,
+): Partial<SandboxConfig> | null {
+	const invalid = (why: string): null => {
+		console.error(`Warning: ${path}: ${why} — file ignored.`);
+		return null;
+	};
 
-	let globalConfig: Partial<SandboxConfig> = {};
-	let projectConfig: Partial<SandboxConfig> = {};
+	if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+		return invalid("top-level value must be a JSON object");
+	}
+	const config = parsed as Record<string, unknown>;
 
-	if (existsSync(globalConfigPath)) {
-		try {
-			globalConfig = JSON.parse(readFileSync(globalConfigPath, "utf-8"));
-		} catch (e) {
-			console.error(`Warning: Could not parse ${globalConfigPath}: ${e}`);
+	if (config.enabled !== undefined && typeof config.enabled !== "boolean") {
+		return invalid(`"enabled" must be a boolean`);
+	}
+	for (const section of ["network", "filesystem"] as const) {
+		const value = config[section];
+		if (value === undefined) continue;
+		if (typeof value !== "object" || value === null || Array.isArray(value)) {
+			return invalid(`"${section}" must be an object`);
+		}
+		const arrayKeys: Record<string, readonly string[]> = {
+			network: ["allowedDomains", "deniedDomains"],
+			filesystem: ["denyRead", "allowWrite", "denyWrite"],
+		};
+		for (const key of arrayKeys[section]) {
+			const list = (value as Record<string, unknown>)[key];
+			if (list === undefined) continue;
+			if (!Array.isArray(list) || list.some((e) => typeof e !== "string")) {
+				return invalid(`"${section}.${key}" must be an array of strings`);
+			}
 		}
 	}
+	return config as Partial<SandboxConfig>;
+}
 
-	if (existsSync(projectConfigPath)) {
-		try {
-			projectConfig = JSON.parse(readFileSync(projectConfigPath, "utf-8"));
-		} catch (e) {
-			console.error(`Warning: Could not parse ${projectConfigPath}: ${e}`);
-		}
+function readConfigFile(path: string): Partial<SandboxConfig> {
+	if (!existsSync(path)) return {};
+	try {
+		return validateConfigShape(path, JSON.parse(readFileSync(path, "utf-8"))) ?? {};
+	} catch (e) {
+		console.error(`Warning: Could not parse ${path}: ${e}`);
+		return {};
 	}
+}
+
+function projectConfigPath(cwd: string): string {
+	return join(cwd, CONFIG_DIR_NAME, "sandbox.json");
+}
+
+function loadConfig(cwd: string, trusted = true): SandboxConfig {
+	// An untrusted project checkout must not be able to weaken the sandbox
+	// for itself (disable it, widen the egress allowlist, …): the project
+	// config is only read once pi's project trust is active for the session.
+	const projectConfig = trusted
+		? readConfigFile(projectConfigPath(cwd))
+		: {};
+	if (!trusted && existsSync(projectConfigPath(cwd))) {
+		console.error(
+			`Warning: ${projectConfigPath(cwd)} ignored — project is not trusted.`,
+		);
+	}
+	const globalConfig = readConfigFile(join(getAgentDir(), "sandbox.json"));
 
 	return mergeConfig(mergeConfig(DEFAULT_CONFIG, globalConfig), projectConfig);
 }
@@ -131,69 +204,49 @@ function mergeConfig(
 	return result;
 }
 
-/** Kill a detached child's whole process group, falling back to the child alone. */
-function killGroup(child: ChildProcess): void {
-	if (!child.pid) return;
-	try {
-		process.kill(-child.pid, "SIGKILL");
-	} catch {
-		child.kill("SIGKILL");
-	}
+/**
+ * Anchor relative filesystem entries to the session cwd. sandbox-runtime
+ * would anchor them to the process launch directory instead, which silently
+ * parts ways with the session cwd when a session is resumed from elsewhere.
+ */
+function anchorEntries(entries: string[], cwd: string): string[] {
+	return entries.map((entry) =>
+		entry.startsWith("~") || entry.startsWith("/") ? entry : resolve(cwd, entry),
+	);
 }
 
-function createSandboxedBashOps(): BashOperations {
+/**
+ * Harden the filesystem section at initialization: anchor relative entries
+ * to the session cwd, and deny writes to the project sandbox config itself
+ * so sandboxed commands cannot rewrite the policy the next session loads.
+ */
+function hardenedFilesystem(
+	config: SandboxConfig,
+	cwd: string,
+): SandboxRuntimeConfig["filesystem"] {
 	return {
-		async exec(command, cwd, { onData, signal, timeout }) {
-			if (!existsSync(cwd)) {
-				throw new Error(`Working directory does not exist: ${cwd}`);
-			}
+		...config.filesystem,
+		denyRead: anchorEntries(config.filesystem.denyRead ?? [], cwd),
+		allowWrite: anchorEntries(config.filesystem.allowWrite ?? [], cwd),
+		denyWrite: [
+			...anchorEntries(config.filesystem.denyWrite ?? [], cwd),
+			projectConfigPath(cwd),
+		],
+	};
+}
 
-			const wrappedCommand = await SandboxManager.wrapWithSandbox(command);
-
-			return new Promise((resolve, reject) => {
-				const child = spawn("bash", ["-c", wrappedCommand], {
-					cwd,
-					detached: true,
-					stdio: ["ignore", "pipe", "pipe"],
-				});
-
-				let timedOut = false;
-				let timeoutHandle: NodeJS.Timeout | undefined;
-
-				if (timeout !== undefined && timeout > 0) {
-					timeoutHandle = setTimeout(() => {
-						timedOut = true;
-						killGroup(child);
-					}, timeout * 1000);
-				}
-
-				child.stdout?.on("data", onData);
-				child.stderr?.on("data", onData);
-
-				child.on("error", (err) => {
-					if (timeoutHandle) clearTimeout(timeoutHandle);
-					reject(err);
-				});
-
-				const onAbort = () => {
-					killGroup(child);
-				};
-
-				signal?.addEventListener("abort", onAbort, { once: true });
-
-				child.on("close", (code) => {
-					if (timeoutHandle) clearTimeout(timeoutHandle);
-					signal?.removeEventListener("abort", onAbort);
-
-					if (signal?.aborted) {
-						reject(new Error("aborted"));
-					} else if (timedOut) {
-						reject(new Error(`timeout:${timeout}`));
-					} else {
-						resolve({ exitCode: code });
-					}
-				});
-			});
+/**
+ * Wrap pi's own local bash backend instead of reimplementing it. Delegation
+ * keeps parity with the built-in bash tool: env/session variables (PI_*),
+ * the ~/.pi/agent/bin PATH entry, timeout and abort handling, and detached
+ * child tracking so process trees die with pi.
+ */
+function createSandboxedBashOps(): BashOperations {
+	const local = createLocalBashOperations();
+	return {
+		async exec(command, cwd, options) {
+			const wrapped = await SandboxManager.wrapWithSandbox(command);
+			return local.exec(wrapped, cwd, options);
 		},
 	};
 }
@@ -220,6 +273,13 @@ export default function (pi: ExtensionAPI) {
 		ops: null as BashOperations | null,
 		tool: null as ReturnType<typeof createBashTool> | null,
 	};
+
+	/**
+	 * In-flight initialization, if any. Bash calls that arrive while the
+	 * session is still starting up await this instead of racing past it to
+	 * unsandboxed execution.
+	 */
+	let initInFlight: Promise<void> | null = null;
 
 	function refreshStatus(ctx: ExtensionContext): void {
 		// Dim color matches the surrounding UI chrome (footer lines) so the
@@ -251,15 +311,20 @@ export default function (pi: ExtensionAPI) {
 
 		// Config is read fresh on every enable; re-enabling within a session
 		// resets the runtime so config edits take effect (review: stale config).
-		const config = loadConfig(ctx.cwd);
+		const config = loadConfig(ctx.cwd, ctx.isProjectTrusted());
 
 		try {
 			if (sandbox.initialized) {
-				await SandboxManager.reset();
+				try {
+					await SandboxManager.reset();
+				} catch {
+					// A failed reset of stale runtime state is not fatal —
+					// initialize() below replaces whatever is left.
+				}
 			}
 			await SandboxManager.initialize({
 				network: config.network,
-				filesystem: config.filesystem,
+				filesystem: hardenedFilesystem(config, ctx.cwd),
 			});
 			sandbox.initialized = true;
 			sandbox.ops = createSandboxedBashOps();
@@ -280,19 +345,49 @@ export default function (pi: ExtensionAPI) {
 		refreshStatus(ctx);
 	}
 
-	function disableSandbox(ctx: ExtensionContext): void {
+	/** Start (or restart) the sandbox; never rejects, so awaiting callers are safe. */
+	function startEnable(ctx: ExtensionContext): Promise<void> {
+		const pending = enableSandbox(ctx).catch(() => {
+			// enableSandbox reports its own errors; this only guards the
+			// initInFlight contract.
+		});
+		initInFlight = pending;
+		void pending.then(() => {
+			if (initInFlight === pending) initInFlight = null;
+		});
+		return pending;
+	}
+
+	async function disableSandbox(ctx: ExtensionContext): Promise<void> {
 		sandbox.enabled = false;
+		if (sandbox.initialized) {
+			sandbox.initialized = false;
+			sandbox.ops = null;
+			sandbox.tool = null;
+			// Tear the runtime down rather than leaving the host-side proxy
+			// and bridges listening for the rest of the session. Commands
+			// already wrapped with the old proxy credentials fail closed.
+			try {
+				await SandboxManager.reset();
+			} catch {
+				// Ignore cleanup errors
+			}
+		}
 		refreshStatus(ctx);
 	}
 
 	pi.registerTool({
 		...hostBash,
 		label: "bash (sandboxed)",
-		async execute(id, params, signal, onUpdate, _ctx) {
-			if (!sandbox.enabled || !sandbox.tool) {
-				return hostBash.execute(id, params, signal, onUpdate);
+		async execute(id, params, signal, onUpdate, ctx) {
+			if (initInFlight) await initInFlight;
+
+			if (sandbox.enabled && sandbox.tool) {
+				return sandbox.tool.execute(id, params, signal, onUpdate, ctx);
 			}
-			return sandbox.tool.execute(id, params, signal, onUpdate);
+			// ctx is forwarded on the fallback path too, so unsandboxed
+			// execution still lands in the session cwd with session env.
+			return hostBash.execute(id, params, signal, onUpdate, ctx);
 		},
 	});
 
@@ -310,7 +405,7 @@ export default function (pi: ExtensionAPI) {
 			return;
 		}
 
-		const config = loadConfig(ctx.cwd);
+		const config = loadConfig(ctx.cwd, ctx.isProjectTrusted());
 
 		if (!config.enabled) {
 			sandbox.enabled = false;
@@ -318,7 +413,7 @@ export default function (pi: ExtensionAPI) {
 			return;
 		}
 
-		await enableSandbox(ctx);
+		await startEnable(ctx);
 	});
 
 	pi.on("session_shutdown", async (_event, ctx) => {
@@ -347,11 +442,11 @@ export default function (pi: ExtensionAPI) {
 			const action = args.trim().toLowerCase();
 
 			if (action === "on") {
-				await enableSandbox(ctx);
+				await startEnable(ctx);
 				return;
 			}
 			if (action === "off") {
-				disableSandbox(ctx);
+				await disableSandbox(ctx);
 				return;
 			}
 			if (action) {
@@ -362,7 +457,8 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 
-			const config = loadConfig(ctx.cwd);
+			const trusted = ctx.isProjectTrusted();
+			const config = loadConfig(ctx.cwd, trusted);
 			const state = sandbox.enabled
 				? "on"
 				: sandbox.initError
@@ -371,6 +467,9 @@ export default function (pi: ExtensionAPI) {
 			const fmt = (list?: string[]) => list?.join(", ") || "(none)";
 			const lines = [
 				`Sandbox: ${state} (toggle: /sandbox on | /sandbox off)`,
+				...(trusted || !existsSync(projectConfigPath(ctx.cwd))
+					? []
+					: ["Project config ignored (project is not trusted)"]),
 				"",
 				"Network:",
 				`  Allowed: ${fmt(config.network?.allowedDomains)}`,
