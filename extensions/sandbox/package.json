@@ -1,0 +1,25 @@
+{
+  "name": "@pi-spice/sandbox",
+  "version": "0.0.0",
+  "description": "OS-level sandboxing for pi's bash tool: filesystem write confinement, sensitive-dir read denial, and domain-allowlisted network egress",
+  "keywords": ["pi-package"],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/0x2E/pi-spice.git",
+    "directory": "extensions/sandbox"
+  },
+  "pi": {
+    "extensions": ["./index.ts"]
+  },
+  "dependencies": {
+    "@anthropic-ai/sandbox-runtime": "^0.0.76"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
