@@ -26,6 +26,14 @@ pi install npm:@pi-spice/sandbox
   patterns apply on macOS and are kept for forward compatibility.
 - The project's own `.pi/sandbox.json` is write-denied inside the sandbox,
   so sandboxed commands cannot rewrite the policy the next session loads.
+- **Git worktrees & submodules** work out of the box: when git metadata
+  lives outside the project (a `git worktree` checkout's shared `.git`, a
+  submodule's gitdir), those directories are added to the write allowlist
+  automatically at enable time. `hooks/` and `config/` inside every git
+  directory stay write-denied — they execute or load in later unsandboxed
+  git runs, so writing them from inside the sandbox would be an escape.
+  `/sandbox` lists the auto-allowed paths. Operations on a *parent*
+  project's working tree from inside a submodule remain out of scope.
 - Sandboxed commands run through the same backend as the built-in bash
   tool, so they see an identical environment (session variables like
   `PI_*`, `~/.pi/agent/bin` on `PATH`).

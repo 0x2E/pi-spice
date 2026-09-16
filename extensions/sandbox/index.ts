@@ -25,6 +25,13 @@
  *     weaken the sandbox for itself, and the file itself is write-denied
  *     inside the sandbox so bash cannot weaken it for the next session.
  *
+ * Git worktrees and submodules keep their metadata outside the project
+ * directory; those git directories are detected at enable time and added
+ * to the write allowlist automatically (a plain clone needs nothing — its
+ * .git is inside the project). hooks/ and config/ inside every git
+ * directory stay write-denied: they execute or load in later unsandboxed
+ * git runs, so writing them from inside the sandbox would be an escape.
+ *
  * Install: pi install npm:@pi-spice/sandbox
  * Quick test: pi -e ./extensions/sandbox
  *
@@ -49,6 +56,7 @@
  * zero-dependency convention: security-boundary code should be battle-tested.
  */
 
+import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import {
@@ -216,21 +224,56 @@ function anchorEntries(entries: string[], cwd: string): string[] {
 }
 
 /**
+ * Git metadata directories that live outside the session cwd — the
+ * per-worktree admin dir and shared common dir of a `git worktree`
+ * checkout, or a submodule's gitdir. Without write access to them,
+ * `git commit` fails with EROFS inside the sandbox. A plain clone's .git
+ * sits inside the project and is not returned.
+ */
+function detectExternalGitDirs(cwd: string): string[] {
+	const git = (args: string[]): string | null => {
+		try {
+			return execFileSync("git", args, { cwd, encoding: "utf-8" }).trim();
+		} catch {
+			return null; // git missing, or cwd is not a repository
+		}
+	};
+	const gitDir = git(["rev-parse", "--absolute-git-dir"]);
+	if (!gitDir) return [];
+	const commonDirRaw = git(["rev-parse", "--git-common-dir"]);
+	const commonDir = commonDirRaw ? resolve(cwd, commonDirRaw) : null;
+
+	const under = (p: string, root: string) => p === root || p.startsWith(root + "/");
+	const dirs = new Set<string>();
+	if (!under(gitDir, cwd)) dirs.add(gitDir);
+	if (commonDir && !under(commonDir, cwd)) dirs.add(commonDir);
+	return [...dirs];
+}
+
+/**
  * Harden the filesystem section at initialization: anchor relative entries
  * to the session cwd, and deny writes to the project sandbox config itself
  * so sandboxed commands cannot rewrite the policy the next session loads.
+ * External git directories (worktrees/submodules) become writable so git
+ * operations work, with their hooks/ and config/ carved back out — see
+ * detectExternalGitDirs.
  */
 function hardenedFilesystem(
 	config: SandboxConfig,
 	cwd: string,
+	gitDirs: string[],
 ): SandboxRuntimeConfig["filesystem"] {
 	return {
 		...config.filesystem,
 		denyRead: anchorEntries(config.filesystem.denyRead ?? [], cwd),
-		allowWrite: anchorEntries(config.filesystem.allowWrite ?? [], cwd),
+		allowWrite: [
+			...anchorEntries(config.filesystem.allowWrite ?? [], cwd),
+			...gitDirs,
+		],
 		denyWrite: [
 			...anchorEntries(config.filesystem.denyWrite ?? [], cwd),
 			projectConfigPath(cwd),
+			...gitDirs.flatMap((dir) => [join(dir, "hooks"), join(dir, "config")]),
 		],
 	};
 }
@@ -270,6 +313,7 @@ export default function (pi: ExtensionAPI) {
 		enabled: false,
 		initialized: false,
 		initError: null as string | null,
+		gitDirs: [] as string[],
 		ops: null as BashOperations | null,
 		tool: null as ReturnType<typeof createBashTool> | null,
 	};
@@ -322,9 +366,10 @@ export default function (pi: ExtensionAPI) {
 					// initialize() below replaces whatever is left.
 				}
 			}
+			sandbox.gitDirs = detectExternalGitDirs(ctx.cwd);
 			await SandboxManager.initialize({
 				network: config.network,
-				filesystem: hardenedFilesystem(config, ctx.cwd),
+				filesystem: hardenedFilesystem(config, ctx.cwd, sandbox.gitDirs),
 			});
 			sandbox.initialized = true;
 			sandbox.ops = createSandboxedBashOps();
@@ -360,6 +405,7 @@ export default function (pi: ExtensionAPI) {
 
 	async function disableSandbox(ctx: ExtensionContext): Promise<void> {
 		sandbox.enabled = false;
+		sandbox.gitDirs = [];
 		if (sandbox.initialized) {
 			sandbox.initialized = false;
 			sandbox.ops = null;
@@ -479,6 +525,9 @@ export default function (pi: ExtensionAPI) {
 				`  Deny Read: ${fmt(config.filesystem?.denyRead)}`,
 				`  Allow Write: ${fmt(config.filesystem?.allowWrite)}`,
 				`  Deny Write: ${fmt(config.filesystem?.denyWrite)}`,
+				...(sandbox.gitDirs.length
+					? [`Git metadata (auto-allowed): ${sandbox.gitDirs.join(", ")}`]
+					: []),
 			];
 			ctx.ui.notify(lines.join("\n"), "info");
 		},

@@ -3,4 +3,4 @@
 "@pi-spice/all": minor
 ---
 
-Add `@pi-spice/sandbox`: OS-level sandboxing for pi's bash tool (filesystem write confinement, sensitive-dir read denial, domain-allowlisted network egress) via `@anthropic-ai/sandbox-runtime`.
+Add `@pi-spice/sandbox`: OS-level sandboxing for pi's bash tool (filesystem write confinement, sensitive-dir read denial, domain-allowlisted network egress) via `@anthropic-ai/sandbox-runtime`. Git worktree and submodule metadata living outside the project is write-allowed automatically (their `hooks/` and `config/` stay protected).
