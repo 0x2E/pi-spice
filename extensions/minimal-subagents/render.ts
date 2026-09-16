@@ -11,7 +11,7 @@ import * as os from "node:os";
 import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { Message } from "@earendil-works/pi-ai";
 import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
-import { Container, Markdown, Spacer, Text, truncateToWidth } from "@earendil-works/pi-tui";
+import { Container, Markdown, Spacer, Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import {
 	getFinalOutput,
 	isFailedResult,
@@ -62,10 +62,16 @@ export function formatUsageStats(
 	return parts.join(" ");
 }
 
-/** Terminal width for transcript lines — the render hooks get no width from the host. */
+/** Terminal width for transcript lines — the render hooks get no width from the host. Falsy (0/undefined, e.g. mid-resize in CI) falls back like the host TUI does. */
 function terminalColumns(): number {
-	return process.stdout.columns ?? 80;
+	return process.stdout.columns || 80;
 }
+
+/** pi renders tool results inside a Box(1,1): block lines get 2 columns less than the terminal. */
+const BLOCK_INSET = 2;
+
+/** Left indent of task/activity continuation rows inside a block. */
+const ROW_INDENT = 2;
 
 /**
  * Width-aware truncation for possibly ANSI-styled text: `truncateToWidth`
@@ -73,9 +79,21 @@ function terminalColumns(): number {
  * sequence or grapheme cluster in half. Hand-assembled transcript lines must
  * go through this — never `String.slice`, which counts UTF-16 units and
  * overflows on CJK text or styled strings.
+ *
+ * The ellipsis is post-processed: `truncateToWidth` wraps it in bare `\x1b[0m`
+ * full resets, and those also clear the enclosing tool-block background —
+ * everything after the truncation point (including the block's padding)
+ * would lose its tint. Stripping them is not enough on its own: when the cut
+ * lands inside a styled span, the span's scoped close (`\x1b[22m`/`\x1b[39m`)
+ * is gone too, and `wrapTextWithAnsi` carries still-open SGR attributes across
+ * `\n` onto the following scoreboard lines (a bold agent name would embolden
+ * the task, blank and summary rows). So on real truncation we re-close fg
+ * and bold with scoped resets — neither touches the block background — and
+ * leave the ellipsis inheriting the color active at the cut.
  */
 function truncateVisual(text: string, maxCols: number): string {
-	return truncateToWidth(text, maxCols, "…");
+	const truncated = truncateToWidth(text, maxCols, "…").replaceAll("\x1b[0m", "");
+	return visibleWidth(text) > maxCols ? truncated + "\x1b[22m\x1b[39m" : truncated;
 }
 
 export function formatToolCall(
@@ -281,7 +299,10 @@ function isQueued(r: SingleResult): boolean {
  * when names are opaque). Running agents grow a third line with the latest
  * tool call. Failed agents put the error on the header; tokens/cost live
  * only on the call-total summary (multi-agent, finished). The hint line is
- * running-only. The panel (alt+a) is the live timeline; this stays a summary.
+ * running-only. Lines truncate to the block's real content width (terminal -
+ * Box padding) so they never re-wrap into orphan rows, and a blank line
+ * separates the summary/hint status rows from the per-agent rows above. The
+ * panel (alt+a) is the live timeline; this stays a summary.
  */
 function scoreboardView(details: SubagentDetails, theme: RenderTheme): Text {
 	const results = details.results;
@@ -308,6 +329,8 @@ function scoreboardView(details: SubagentDetails, theme: RenderTheme): Text {
 	const models = new Set(results.map((r) => r.model).filter(Boolean));
 	const showModels = models.size > 1;
 	const cols = terminalColumns();
+	const headerCols = Math.max(1, cols - BLOCK_INSET);
+	const rowCols = Math.max(1, headerCols - ROW_INDENT);
 
 	const lines: string[] = [];
 	for (const r of results) {
@@ -315,16 +338,18 @@ function scoreboardView(details: SubagentDetails, theme: RenderTheme): Text {
 		if (!isQueued(r)) header += ` ${theme.fg("dim", collapsedStats(r))}`;
 		if (showModels && r.model) header += ` ${theme.fg("dim", r.model.split("/").pop() ?? r.model)}`;
 		if (isFailedResult(r)) header += `  ${theme.fg("error", failReason(r))}`;
-		lines.push(truncateVisual(header, cols));
+		lines.push(truncateVisual(header, headerCols));
 
 		const task = taskFirstLine(r.task);
-		if (task) lines.push(`  ${truncateVisual(theme.fg("dim", task), cols - 2)}`);
+		if (task) lines.push(`${" ".repeat(ROW_INDENT)}${truncateVisual(theme.fg("dim", task), rowCols)}`);
 
 		const activity = runningActivity(r, theme);
-		if (activity) lines.push(`  ${truncateVisual(activity, cols - 2)}`);
+		if (activity) lines.push(`${" ".repeat(ROW_INDENT)}${truncateVisual(activity, rowCols)}`);
 	}
-	if (summary) lines.push(theme.fg("dim", summary));
-	if (isRunning) lines.push(theme.fg("muted", "alt+a live details"));
+	// Blank line so the call-total status rows read as a footer, not as another agent row.
+	if (summary || isRunning) lines.push("");
+	if (summary) lines.push(truncateVisual(theme.fg("dim", summary), headerCols));
+	if (isRunning) lines.push(truncateVisual(theme.fg("muted", "alt+a live details"), headerCols));
 	return new Text(lines.join("\n"), 0, 0);
 }
 
