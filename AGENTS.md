@@ -15,6 +15,8 @@ pi-spice: a monorepo of pi extensions published as individual npm packages. Each
 
 - An extension's description appears in several places — `package.json` `description`, the extension `README.md`, the root `README.md` table, the `index.ts` header. Keep them as consistent as possible: reuse the `package.json` description verbatim where it fits, and change all occurrences together.
 
+- Extensions matching keystrokes in a custom component (`handleInput`) use key ids via `matchesKey(data, "right")` / `kb.matches(data, "tui.…")`. Raw byte literals (`"\x1b[C"`, `"\x1b"`) cover only legacy encodings: pi negotiates the kitty keyboard protocol at startup, where the same keys arrive as `\x1b[27u`-style CSI-u sequences (see `extensions/minimal-subagents/panel.ts`). `pi.registerShortcut` / `registerCommand` are host-side and safe as-is.
+
 ## Versioning & Release
 
 - `@pi-spice/all` (in `packages/all/`) bundles every extension, so it rides every release. A PR touching anything under `extensions/**` adds a `.changeset/<name>.md` declaring every touched extension plus `@pi-spice/all` at the highest bumped level; CI (`.github/workflows/changeset-check.yml`) rejects PRs that skip this. New extensions start at `0.0.0`; their first changeset decides the initial version.
