@@ -15,7 +15,11 @@
  * windowed by a hand-rolled viewport (offset math) — the overlay contract is
  * `render(width) => string[]`, so we control exactly which slice is visible.
  * Mouse wheel is parsed directly from SGR sequences reaching handleInput
- * while the overlay is focused.
+ * while the overlay is focused. All other keys are matched via matchesKey
+ * (protocol-independent): pi negotiates the kitty keyboard protocol at
+ * startup, and under it Esc/arrows arrive as CSI-u sequences that a raw
+ * byte-sequence switch would never match — keys must not be compared to
+ * `"\x1b[C"`-style literals.
  */
 
 import { Markdown, matchesKey, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
@@ -280,7 +284,7 @@ class AgentPanel {
 
 		const details = currentDetails;
 		if (!details || details.results.length === 0) {
-			if (data === "\x1b") this.close();
+			if (matchesKey(data, "escape")) this.close();
 			return;
 		}
 		const tabCount = details.results.length;
@@ -293,42 +297,49 @@ class AgentPanel {
 			return;
 		}
 
-		switch (data) {
-			case "\x1b": // Esc alone
-				this.close();
-				return;
-			case "\x1b[D": // left
-			case "\x1b[1;5D": // ctrl+left
-				this.switchTab((this.activeTab - 1 + tabCount) % tabCount);
-				return;
-			case "\x1b[C": // right
-			case "\x1b[1;5C": // ctrl+right
-				this.switchTab((this.activeTab + 1) % tabCount);
-				return;
-			case "\x1b[A":
-				this.scroll(-1);
-				return;
-			case "\x1b[B":
-				this.scroll(1);
-				return;
-			case "\x1b[H":
-			case "g":
-				this.offset = 0;
-				this.follow = false;
-				this.tui.requestRender();
-				return;
-			case "\x1b[F":
-			case "G":
-				this.follow = true;
-				this.tui.requestRender();
-				return;
+		// Key matching is protocol-independent (matchesKey handles legacy xterm,
+		// SS3 and kitty CSI-u encodings). The panel keeps focus, so every keypress
+		// that matches nothing above is simply dropped here.
+		if (matchesKey(data, "escape")) {
+			this.close();
+			return;
+		}
+		if (matchesKey(data, "left") || matchesKey(data, "ctrl+left")) {
+			this.switchTab((this.activeTab - 1 + tabCount) % tabCount);
+			return;
+		}
+		if (matchesKey(data, "right") || matchesKey(data, "ctrl+right")) {
+			this.switchTab((this.activeTab + 1) % tabCount);
+			return;
+		}
+		if (matchesKey(data, "up")) {
+			this.scroll(-1);
+			return;
+		}
+		if (matchesKey(data, "down")) {
+			this.scroll(1);
+			return;
+		}
+		if (matchesKey(data, "home") || matchesKey(data, "g")) {
+			this.offset = 0;
+			this.follow = false;
+			this.tui.requestRender();
+			return;
+		}
+		if (matchesKey(data, "end") || matchesKey(data, "shift+g")) {
+			this.follow = true;
+			this.tui.requestRender();
+			return;
 		}
 
-		// Number keys 1..8 jump to a tab
-		if (/^[1-9]$/.test(data)) {
-			const idx = Number(data) - 1;
-			if (idx < tabCount) this.switchTab(idx);
-			return;
+		// Number keys 1..9 jump to a tab (matchesKey also covers the CSI-u form
+		// a report-all-keys terminal would send)
+		const numberKeys = ["1", "2", "3", "4", "5", "6", "7", "8", "9"] as const;
+		for (const [idx, key] of numberKeys.entries()) {
+			if (matchesKey(data, key)) {
+				if (idx < tabCount) this.switchTab(idx);
+				return;
+			}
 		}
 
 		// Paging respects user keybindings (tui.altScreen.* ids)
