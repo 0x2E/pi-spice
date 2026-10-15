@@ -1,0 +1,22 @@
+{
+  "name": "@pi-spice/minimize-blocks",
+  "version": "0.0.0",
+  "description": "Collapse built-in tool rows into one-line summaries",
+  "keywords": ["pi-package"],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/0x2E/pi-spice.git",
+    "directory": "extensions/minimize-blocks"
+  },
+  "pi": {
+    "extensions": ["./index.ts"]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

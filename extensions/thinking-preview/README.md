@@ -37,5 +37,6 @@ Quick test without installing: `pi -e ./extensions/thinking-preview/`
 
 ## Notes
 
+- Pairs with [@pi-spice/minimize-blocks](../minimize-blocks/), which collapses tool rows the same way. The two extensions touch disjoint mechanisms and never conflict.
 - Old thinking blocks pick up a mode change immediately (the toggle forces a re-render), and restored sessions render collapsed previews too.
 - `alt+t` was chosen because every `ctrl+letter` combination is bound in pi's default keybindings. If you have `alt+t` bound to something else, `/thinking-preview` works as a fallback.
