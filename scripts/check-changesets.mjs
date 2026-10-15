@@ -6,12 +6,18 @@
 //      in a changeset added/modified by that same PR
 //   B. every changeset that releases anything must also release "@pi-spice/all"
 //      (the meta-package bundles all extensions, so it rides every release)
+//   C. every runtime dependency declared by an extension's package.json must
+//      be declared identically by packages/all — npm only installs the
+//      meta-package's own dependencies, so a missing entry means
+//      `pi install npm:@pi-spice/all` bundles extensions whose imports
+//      cannot resolve
 //
 // Changesets are parsed with the official @changesets/parse — quoting styles
 // and YAML quirks are its problem, not ours.
 
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { join } from "node:path";
 import parse from "@changesets/parse";
 
 const ALL = "@pi-spice/all";
@@ -70,6 +76,26 @@ for (const file of changesetFiles) {
 for (const ext of touchedExtensions) {
   if (!declared.has(`@pi-spice/${ext}`)) {
     errors.push(`extensions/${ext}/ changed, but no changeset in this PR declares "@pi-spice/${ext}:"`);
+  }
+}
+
+// Rule C — meta-package dependency coverage. Checked against ALL extensions,
+// not just the ones this PR touched, so pre-existing drift is caught too.
+{
+  const allDeps = JSON.parse(readFileSync("packages/all/package.json", "utf8")).dependencies ?? {};
+  for (const dir of readdirSync("extensions").filter((d) => statSync(join("extensions", d)).isDirectory())) {
+    const pkgPath = join("extensions", dir, "package.json");
+    if (!existsSync(pkgPath)) continue;
+    const deps = JSON.parse(readFileSync(pkgPath, "utf8")).dependencies ?? {};
+    for (const [name, range] of Object.entries(deps)) {
+      if (allDeps[name] !== range) {
+        errors.push(
+          `extensions/${dir} depends on ${name}@${range}, but packages/all declares ${
+            allDeps[name] ? `${name}@${allDeps[name]} (ranges must match exactly)` : `no ${name} at all`
+          } — pi install npm:@pi-spice/all could not resolve it`,
+        );
+      }
+    }
   }
 }
 
