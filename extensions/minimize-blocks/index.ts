@@ -27,8 +27,10 @@
  * mode; regular mode leaves the mouse to the terminal.) Thinking expands
  * with the same `ctrl+o`: the tool renderers mirror pi's global expansion
  * flag, thinking renders full text while it is set, and the flag flipping
- * forces every message component through the transformer again. No
- * separate key, no command. Collapsed is the default; a
+ * forces every message component through the transformer again. The
+ * `/minimize-blocks` command drives the same flag for when `ctrl+o` is
+ * rebound (tree view cycles filters on it, for instance). No separate
+ * keybinding. Collapsed is the default; a
  * restart resets it. Display-only — the session file and the model context
  * are untouched.
  *
@@ -468,6 +470,20 @@ export default function minimizeBlocks(pi: ExtensionAPI) {
 	// ---- Thinking blocks: rewrite the display through a Markdown transformer ----
 	pi.on("session_start", (_event, ctx) => {
 		ui = ctx.ui;
+	});
+
+	// Command fallback for when ctrl+o is rebound (tree view cycles filters on
+	// it, for instance). Drives pi's own global flag; the renderer-side mirror
+	// then brings thinking along.
+	pi.registerCommand("minimize-blocks", {
+		description: "Toggle all blocks between summary and full text",
+		handler: async () => {
+			try {
+				ui?.setToolsExpanded(!toolsExpanded);
+			} catch {
+				// Non-interactive modes have nothing to toggle.
+			}
+		},
 	});
 
 	pi.registerMarkdownTransformer((markdown, { messageType, isStreaming, availableWidth }) =>
