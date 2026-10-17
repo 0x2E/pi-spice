@@ -1,8 +1,7 @@
 name: Changeset check
 
 # A PR that changes extensions/** must add a changeset declaring every touched
-# extension plus @pi-spice/all — otherwise the change ships undocumented and
-# unversioned (or silently rides along inside the next release).
+# extension — otherwise the change ships undocumented and unversioned.
 on:
   pull_request:
     paths:
@@ -30,5 +29,5 @@ jobs:
 
       - run: npm ci
 
-      - name: Extension changes require a changeset declaring them and @pi-spice/all
+      - name: Extension changes require a changeset declaring them
         run: node scripts/check-changesets.mjs "origin/${{ github.base_ref }}"

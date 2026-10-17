@@ -1,6 +1,6 @@
 # @pi-spice/minimize-blocks
 
-Collapse tool rows and thinking blocks in the pi transcript into one-line summaries.
+Collapse tool rows and thinking blocks into one-line summaries.
 
 pi renders every block in full — command, diff, file contents, output preview, entire reasoning streams — so an active session scrolls itself away. With this extension, tool rows of the seven built-in tools and thinking blocks collapse to a single line; failures keep one line of error tail:
 
@@ -33,9 +33,9 @@ Collapsed is the default; a restart resets it.
 
 ## How it works
 
-- Tool rows: covers the seven built-in tools — `bash`, `edit`, `write`, `read`, `grep`, `find`, `ls`. Other tools (MCP, custom) render unchanged. Per-tool summaries: bash shows command, status and duration; edit/write the path with `+`/`−` line stats; read the path with its line count; grep/find/ls the query with hit counts.
-- Thinking blocks: a Markdown transformer (`pi.registerMarkdownTransformer`), display-only like the tool renderers (`pi.registerToolRenderer`) — the session file and the model context are untouched.
-- **Mutually exclusive with [@pi-spice/thinking-preview](../thinking-preview/)**, which rewrites thinking display through the same transformer slot. Install one or the other; running both double-frames thinking blocks.
+- Covers the seven built-in tools — `bash`, `edit`, `write`, `read`, `grep`, `find`, `ls`. Other tools (MCP, custom) render unchanged. Per-tool summaries: bash shows command, status and duration; edit/write the path with `+`/`−` line stats; read the path with its line count; grep/find/ls the query with hit counts.
+- Display-only: the session file and the model context are untouched.
+- **Mutually exclusive with [@pi-spice/thinking-preview](../thinking-preview/)**, which also collapses thinking. Install one or the other; running both double-frames thinking blocks.
 
 ## License
 

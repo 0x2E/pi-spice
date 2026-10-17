@@ -138,11 +138,14 @@ function isNotice(line: string): boolean {
 	return line.startsWith("[Showing") || line.startsWith("[Full output");
 }
 
-/** Result lines that count as hits: non-empty, not a notice or no-match line. */
+/** Result lines that count as hits: non-empty, not a notice or no-hit line. */
 function hitLineCount(text: string): number {
-	return text
-		.split("\n")
-		.filter((line) => line.trim() !== "" && !isNotice(line) && line !== "No matches found").length;
+	return (
+		text
+			.split("\n")
+			// grep: "No matches found"; find: "No files found matching pattern".
+			.filter((line) => line.trim() !== "" && !isNotice(line) && !/^No (matches|files) found/.test(line)).length
+	);
 }
 
 /** All content lines of a result, notices excluded (blank lines are content too). */
