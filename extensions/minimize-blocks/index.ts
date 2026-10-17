@@ -17,10 +17,12 @@
  * While a call runs, the row shows the command plus the live last output
  * line, so long builds still show progress; while thinking streams, the
  * block shows its status line plus the newest line. Expanding reuses pi's
- * own machinery where it exists: `n` / `ctrl+o` (app.tools.expand) toggles
+ * own machinery where it exists: `ctrl+o` (app.tools.expand) toggles
  * all tool rows, clicking a row toggles that row, and expanded rows
  * delegate to the built-in renderers via the resolver's `next()` — exactly
- * what stock pi shows. Thinking has no built-in expand, so `alt+m` (or
+ * what stock pi shows. (pi 1.2.0's help also lists `n` for this, but that
+ * binding is dead — `ctrl+o` is the working one.) Thinking has no built-in
+ * expand, so `alt+m` (or
  * `/minimize-blocks`) toggles all thinking blocks between summary and full
  * text, re-rendering history immediately. Collapsed is the default; a
  * restart resets it. Display-only — the session file and the model context

@@ -21,5 +21,5 @@ The collapsed rendering of a thinking block: a status line plus its last two lin
 _Avoid_: summary
 
 **Expanded**:
-pi's built-in per-row display state in which a block renders its full content; toggled globally by `n`/`ctrl+o`, per row by click.
+pi's built-in per-row display state in which a block renders its full content; toggled globally by `ctrl+o`, per row by click.
 _Avoid_: unfolded, maximized
