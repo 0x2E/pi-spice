@@ -13,7 +13,7 @@ import parse from "@changesets/parse";
 
 const base = process.argv[2] ?? (process.env.GITHUB_BASE_REF && `origin/${process.env.GITHUB_BASE_REF}`);
 if (!base) {
-  console.error("usage: node --experimental-strip-types scripts/check-changesets.ts <base-ref>");
+  console.error("usage: node scripts/check-changesets.ts <base-ref>");
   process.exit(2);
 }
 
