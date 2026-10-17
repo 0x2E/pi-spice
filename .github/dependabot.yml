@@ -1,0 +1,13 @@
+# Workflows pin actions to full commit SHAs (tags are mutable; the release
+# job carries npm publish credentials). Dependabot keeps those pins fresh so
+# security doesn't cost manual maintenance. Updates are grouped into one PR.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns:
+          - "*"

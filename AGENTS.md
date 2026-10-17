@@ -19,13 +19,15 @@ pi-spice: a monorepo of pi extensions published as individual npm packages. Each
 
 ## Versioning & Release
 
-- `@pi-spice/all` (in `packages/all/`) bundles every extension, so it rides every release. A PR touching anything under `extensions/**` adds a `.changeset/<name>.md` declaring every touched extension plus `@pi-spice/all` at the highest bumped level; CI (`.github/workflows/changeset-check.yml`) rejects PRs that skip this. New extensions start at `0.0.0`; their first changeset decides the initial version.
+- Every extension is published individually — there is no bundle package. A PR touching anything under `extensions/**` adds a `.changeset/<name>.md` declaring every touched extension; CI (`.github/workflows/changeset-check.yml`) rejects PRs that skip this. New extensions start at `0.0.0`; their first changeset decides the initial version.
 
-- A release is merging the bot's "Version Packages" PR — it bumps versions, writes CHANGELOGs, copies `extensions/` into `packages/all/`, publishes, and tags. Merge it late to batch. Feature PRs carry changesets; the Version PR alone edits version numbers.
+- A release is merging the bot's "Version Packages" PR — it bumps versions, writes CHANGELOGs, publishes, and tags. Merge it late to batch. Feature PRs carry changesets; the Version PR alone edits version numbers.
 
 - Publish runs with `ignore-scripts`: extensions must not need lifecycle scripts.
 
 ## Verification
 
-- Quick test: `pi -e ./extensions/<name>/`, or `pi -e .` for every extension at once.
-- Local install: `pi install ./extensions/<name>`.
+- `npm run check` (typecheck + smoke) before pushing — CI runs it on every PR (`.github/workflows/check.yml`). The smoke harness (`scripts/smoke/`) drives renderers and transformers with pi's real result-text shapes and fs-scans the installed pi package for the arg names the summaries read; extend it when an extension grows behavior.
+- Quick test (isolated): `pi -ne -e ./extensions/<name>/` — `-ne` skips all globally installed extensions, so global packages (e.g. an old `@pi-spice/all` bundling thinking-preview) can't contaminate the session. Use `pi -e .` only when you explicitly want every extension at once. For interactive behavior (rendering, mouse, keys), drive a real session in a pty: `tmux new-session -d -s t 'pi -ne -e ./extensions/<name>/ --tui-mode fullscreen'`, then `tmux send-keys` / `tmux capture-pane`.
+- Before reasoning about pi UI behavior (rendering, mouse, keybindings), read the user's `~/.pi/agent/settings.json` — `tuiMode`, `theme`, and `packages` change what the user sees. Verify keybinding claims empirically: pi's help text can advertise dead bindings (`n` in 1.2.0).
+- Repo-wide sweeps need `rg --hidden` (`.changeset/` is a dot-directory).

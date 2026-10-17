@@ -2,22 +2,29 @@
   "name": "@pi-spice/monorepo",
   "version": "0.0.0",
   "private": true,
-  "description": "pi-spice monorepo container — extensions live in extensions/, the published meta-package in packages/all/",
+  "description": "pi-spice monorepo container — each extension lives in extensions/ and publishes individually",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/0x2E/pi-spice.git"
   },
   "workspaces": [
-    "extensions/*",
-    "packages/*"
+    "extensions/*"
   ],
   "scripts": {
-    "release": "cp -a extensions packages/all/extensions && changeset publish && rm -rf packages/all/extensions"
+    "release": "changeset publish",
+    "typecheck": "tsc -p .",
+    "smoke": "node --experimental-strip-types scripts/smoke/collapse-blocks.mjs",
+    "check": "npm run typecheck && npm run smoke"
   },
   "devDependencies": {
     "@changesets/cli": "^3.0.1",
-    "@changesets/parse": "^1.0.0"
+    "@changesets/parse": "^1.0.0",
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    "typescript": "^5.7.0",
+    "typebox": "*"
   },
   "pi": {
     "extensions": [
