@@ -1,6 +1,6 @@
 {
   "name": "@pi-spice/collapse-blocks",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Collapse tool rows and thinking blocks into one-line summaries",
   "keywords": ["pi-package"],
   "license": "MIT",
