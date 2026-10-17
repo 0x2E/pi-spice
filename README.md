@@ -2,6 +2,13 @@
 
 Small spices for [pi](https://github.com/earendil-works/pi) — tiny, self-contained, zero-dependency extensions, each published as an individual npm package under the `@pi-spice` scope. Install the ones you want; see each extension's README for details. Note: some spices are mutually exclusive — `collapse-blocks` and `thinking-preview` both rewrite thinking display, so pick one.
 
+> **`@pi-spice/all` is deprecated** and will receive no further updates. If it is installed, remove it, then install the individual packages you want from the table below:
+>
+> ```bash
+> pi uninstall npm:@pi-spice/all
+> pi install npm:@pi-spice/prefer-modern-cli
+> ```
+
 ## Extensions
 
 | Extension | Core capability |
