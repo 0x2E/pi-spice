@@ -10,7 +10,7 @@
  *
  *   $ npm test · ✓ 3.2s
  *   ✎ src/index.ts +12 −3
- *   ✻ thinking · 142 lines · alt+m to expand
+ *   ✻ thinking · 142 lines · ctrl+o to expand
  *   $ cargo build · ✗ 18.4s
  *   error: could not compile `pi-tui`
  *
@@ -24,10 +24,11 @@
  * the resolver's `next()` — framed exactly like stock pi. (pi 1.2.0's help
  * also lists `n` for this, but that binding is dead — `ctrl+o` is the
  * working one. Clicking a block toggles that row, but only in fullscreen
- * mode; regular mode leaves the mouse to the terminal.) Thinking has no
- * built-in expand, so `alt+m` (or
- * `/minimize-blocks`) toggles all thinking blocks between summary and full
- * text, re-rendering history immediately. Collapsed is the default; a
+ * mode; regular mode leaves the mouse to the terminal.) Thinking expands
+ * with the same `ctrl+o`: the tool renderers mirror pi's global expansion
+ * flag, thinking renders full text while it is set, and the flag flipping
+ * forces every message component through the transformer again. No
+ * separate key, no command. Collapsed is the default; a
  * restart resets it. Display-only — the session file and the model context
  * are untouched.
  *
@@ -51,7 +52,7 @@
 
 import type {
 	ExtensionAPI,
-	ExtensionContext,
+	ExtensionUIContext,
 	Theme,
 	ThemeColor,
 	ToolRenderers,
@@ -282,11 +283,32 @@ function frameSlot(
 /** Columns consumed by the blockquote bar (`│ `) framing thinking blocks. */
 const THINKING_BAR_WIDTH = 2;
 
-/** Shortcut that toggles thinking between summary and full text. */
-const THINKING_TOGGLE_KEY = "alt+m";
+/**
+ * pi's global tool-expansion flag, mirrored here so thinking expands with
+ * `ctrl+o` together with every tool row — no separate key of our own.
+ */
+let toolsExpanded = false;
 
-/** Sticky summary/full-text switch for thinking blocks. Resets on restart. */
-let thinkingExpanded = false;
+/** UI handle for forcing thinking re-renders when the flag flips. */
+let ui: ExtensionUIContext | undefined;
+
+/** Record pi's global expansion state; when it flips, redraw thinking blocks. */
+function syncExpanded(expanded: boolean): void {
+	if (expanded === toolsExpanded) return;
+	toolsExpanded = expanded;
+	try {
+		// Assistant message components are not expandable, so ctrl+o does not
+		// re-render them by itself; re-propagating the hidden-thinking label
+		// forces every one through this transformer with the fresh flag. Side
+		// effect: a custom hidden-thinking label set elsewhere resets to default.
+		ui?.setHiddenThinkingLabel();
+	} catch {
+		// Non-interactive modes have nothing to redraw.
+	}
+}
+
+/** The one expansion key, shown in thinking status lines. */
+const EXPAND_KEY = "ctrl+o";
 
 /** Markdown punctuation that could open or span rendering constructs. */
 const ESCAPE_CLASS = /[\\`*_{}[\]()<>#+\-!|~&=.:\/\\@]/g;
@@ -314,8 +336,8 @@ function thinkingMarkdown(markdown: string, isStreaming: boolean, availableWidth
 	const lines = text.split("\n");
 	const count = `${lines.length} line${lines.length === 1 ? "" : "s"}`;
 	const width = availableWidth - THINKING_BAR_WIDTH;
-	if (thinkingExpanded) {
-		const status = `✻ thinking · ${count} · ${THINKING_TOGGLE_KEY} to collapse`;
+	if (toolsExpanded) {
+		const status = `✻ thinking · ${count} · ${EXPAND_KEY} to collapse`;
 		// Backslash line breaks keep consecutive lines inside one blockquote
 		// from gluing into a single wrapped paragraph (CommonMark soft break).
 		const body = escapeMarkdown(text)
@@ -329,22 +351,7 @@ function thinkingMarkdown(markdown: string, isStreaming: boolean, availableWidth
 		const status = `> ${clipLine(`✻ thinking · ${count}`, width)}\\`;
 		return tail ? `${status}\n> ${escapeMarkdown(clipLine(tail, width))}` : status;
 	}
-	return `> ${clipLine(`✻ thinking · ${count} · ${THINKING_TOGGLE_KEY} to expand`, width)}`;
-}
-
-/** Flip the display mode and force every message component to re-render. */
-async function toggleThinking(ctx: ExtensionContext): Promise<void> {
-	thinkingExpanded = !thinkingExpanded;
-	try {
-		// Re-propagating the hidden-thinking label makes every assistant
-		// message component re-render through this extension's transformer, so
-		// history picks up the new mode immediately — the visible flip itself is
-		// the only feedback. Side effect: a custom hidden-thinking label set
-		// elsewhere resets to its default.
-		ctx.ui.setHiddenThinkingLabel();
-	} catch {
-		// Non-interactive modes: the flag still flipped; nothing to redraw.
-	}
+	return `> ${clipLine(`✻ thinking · ${count} · ${EXPAND_KEY} to expand`, width)}`;
 }
 
 /** Collapsed headline while a call runs: glyph + label, in the call slot. */
@@ -404,6 +411,7 @@ export default function minimizeBlocks(pi: ExtensionAPI) {
 		// under the default shell the region only covers the text lines.
 			renderShell: "self",
 			renderCall(args, theme, context) {
+				syncExpanded(context.expanded);
 				// Args can be absent on invalid calls (pi's own renderers guard `args?.…`).
 				const call = (args as Record<string, unknown> | undefined) ?? {};
 				const baseCall = base?.renderCall;
@@ -428,6 +436,7 @@ export default function minimizeBlocks(pi: ExtensionAPI) {
 				});
 			},
 			renderResult(result, options, theme, context) {
+				syncExpanded(context.expanded);
 				const baseResult = base?.renderResult;
 				if (options.expanded && baseResult) {
 					if (selfFramed) return baseResult(result, options, theme, { ...context, lastComponent: undefined });
@@ -457,18 +466,11 @@ export default function minimizeBlocks(pi: ExtensionAPI) {
 	});
 
 	// ---- Thinking blocks: rewrite the display through a Markdown transformer ----
+	pi.on("session_start", (_event, ctx) => {
+		ui = ctx.ui;
+	});
+
 	pi.registerMarkdownTransformer((markdown, { messageType, isStreaming, availableWidth }) =>
 		messageType === "assistant-thinking" ? thinkingMarkdown(markdown, isStreaming, availableWidth) : markdown,
 	);
-
-	pi.registerShortcut(THINKING_TOGGLE_KEY, {
-		description: "Toggle thinking summary / full text",
-		handler: (ctx) => toggleThinking(ctx),
-	});
-
-	// Command fallback for when the shortcut is rebound.
-	pi.registerCommand("minimize-blocks", {
-		description: "Toggle thinking summary / full text",
-		handler: (_args, ctx) => toggleThinking(ctx),
-	});
 }

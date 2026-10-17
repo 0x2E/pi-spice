@@ -9,7 +9,7 @@ $ npm test · ✓ 3.2s
 ✎ src/index.ts +12 −3
 ▤ src/app.ts · 210 lines
 ⌕ renderCall · 8 matches
-✻ thinking · 142 lines · alt+m to expand
+✻ thinking · 142 lines · ctrl+o to expand
 $ cargo build · ✗ 18.4s
 error: could not compile `pi-tui`
 ```
@@ -27,7 +27,7 @@ Quick test without installing: `pi -e ./extensions/minimize-blocks/`
 ## Expanding
 
 - Tool rows reuse pi's own keys — no new bindings: `ctrl+o` expands/collapses **all** tool rows. An expanded row renders exactly what stock pi shows. Clicking anywhere on a block — including its blank padding rows — toggles **that** block, but only in fullscreen mode; regular mode leaves the mouse to the terminal. (pi's help also lists `n`, but that binding is dead in pi 1.2.0 — it types into the editor; `ctrl+o` works.)
-- Thinking blocks: `alt+m` (or `/minimize-blocks`) toggles **all** thinking blocks between summary and full text, re-rendering history immediately.
+- Thinking blocks expand with the same `ctrl+o` — one key toggles every collapsed block (tool rows and thinking alike); clicking a tool block toggles just that block.
 
 Collapsed is the default; a restart resets it.
 
