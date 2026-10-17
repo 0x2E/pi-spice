@@ -16,12 +16,14 @@
  *
  * While a call runs, the row shows the command plus the live last output
  * line, so long builds still show progress; while thinking streams, the
- * block shows its status line plus the newest line. Expanding reuses pi's
+ * block shows its status line plus the newest line. Each tool slot draws its
+ * own frame — the stock status-colored box — so the whole colored block,
+ * blank padding rows included, is one click target. Expanding reuses pi's
  * own machinery where it exists: `ctrl+o` (app.tools.expand) toggles
  * all tool rows, and expanded rows delegate to the built-in renderers via
- * the resolver's `next()` — exactly what stock pi shows. (pi 1.2.0's help
+ * the resolver's `next()` — framed exactly like stock pi. (pi 1.2.0's help
  * also lists `n` for this, but that binding is dead — `ctrl+o` is the
- * working one. Clicking a row toggles that row, but only in fullscreen
+ * working one. Clicking a block toggles that row, but only in fullscreen
  * mode; regular mode leaves the mouse to the terminal.) Thinking has no
  * built-in expand, so `alt+m` (or
  * `/minimize-blocks`) toggles all thinking blocks between summary and full
@@ -54,6 +56,7 @@ import type {
 	ThemeColor,
 	ToolRenderers,
 } from "@earendil-works/pi-coding-agent";
+import { Box } from "@earendil-works/pi-tui";
 import type { Component } from "@earendil-works/pi-tui";
 
 /** One styled text run. `flex` marks the run that shrinks when the line overflows. */
@@ -105,6 +108,11 @@ class SummaryLines implements Component {
 	set(theme: Theme, lines: Seg[][]): void {
 		this.theme = theme;
 		this.lines = lines;
+	}
+
+	/** Render zero rows. */
+	clear(): void {
+		this.lines = [];
 	}
 
 	render(width: number): string[] {
@@ -237,9 +245,36 @@ function resultText(result: { content: Array<{ type: string; text?: string }> })
 		.join("\n");
 }
 
-/** Reuse this slot's SummaryLines across re-renders, as built-in renderers do. */
-function slot(context: { lastComponent: Component | undefined }): SummaryLines {
-	return context.lastComponent instanceof SummaryLines ? context.lastComponent : new SummaryLines();
+/** A zero-row component for a slot that should render nothing (finished call slot). */
+function emptySlot(context: { lastComponent: Component | undefined }): SummaryLines {
+	const summary = context.lastComponent instanceof SummaryLines ? context.lastComponent : new SummaryLines();
+	summary.clear();
+	return summary;
+}
+
+/**
+ * Wrap a slot in the stock status-colored frame (pending/error/success bg +
+ * padding), reusing the frame across renders. The whole frame — padding rows
+ * included — is one click target: the host's MouseRegion fires for any click
+ * its child does not claim, and the Box claims only its text rows.
+ */
+function frameSlot(
+	context: { lastComponent: Component | undefined; outputPad: number },
+	theme: Theme,
+	isPartial: boolean,
+	isError: boolean,
+	padY: number,
+	build: (lastInner: Component | undefined) => Component,
+): Box {
+	const bgFn = (text: string) =>
+		theme.bg(isPartial ? "toolPendingBg" : isError ? "toolErrorBg" : "toolSuccessBg", text);
+	const frame = context.lastComponent instanceof Box ? context.lastComponent : new Box(context.outputPad, padY, bgFn);
+	frame.setPaddingX(context.outputPad);
+	frame.setBgFn(bgFn);
+	const inner = frame.children[0];
+	frame.clear();
+	frame.addChild(build(inner));
+	return frame;
 }
 
 // ---- Thinking blocks ----
@@ -360,39 +395,62 @@ export default function minimizeBlocks(pi: ExtensionAPI) {
 		const shape = TOOL_SHAPES[toolName];
 		if (!shape) return next(); // not one of ours: pi's rendering stays in place
 		const base = next(); // built-in renderers, delegated to when expanded
+		const selfFramed = base?.renderShell === "self"; // edit frames its own output
 
 		const renderers: ToolRenderers = {
-			// edit draws its own frame; keep whatever shell the built-in tool uses.
-			renderShell: base?.renderShell,
+			// We frame each slot ourselves (status bg + padding). With "self", the
+		// whole colored block — blank padding rows included — sits inside the
+		// host's click region, so clicking anywhere on the block toggles it;
+		// under the default shell the region only covers the text lines.
+			renderShell: "self",
 			renderCall(args, theme, context) {
 				// Args can be absent on invalid calls (pi's own renderers guard `args?.…`).
 				const call = (args as Record<string, unknown> | undefined) ?? {};
-				if (context.expanded && base?.renderCall) {
-					// Hand the built-in renderer a fresh component chain: it expects
-					// to grow its own lastComponent type, not a SummaryLines.
-					return base.renderCall(args, theme, { ...context, lastComponent: undefined });
+				const baseCall = base?.renderCall;
+				if (context.expanded && baseCall) {
+					if (selfFramed) return baseCall(args, theme, { ...context, lastComponent: undefined });
+					return frameSlot(context, theme, context.isPartial, context.isError, 0, (lastInner) =>
+						baseCall(args, theme, {
+							...context,
+							lastComponent: lastInner instanceof SummaryLines ? undefined : lastInner,
+						}),
+					);
 				}
-				const summary = slot(context);
 				// A finished row carries everything in its result slot, so the call
 				// slot empties and the whole row stays a single line.
-				summary.set(theme, context.isPartial ? [runningLine(shape, call)] : []);
-				return summary;
+				if (!context.isPartial) return emptySlot(context);
+				// Running: the headline in a bottom-unpadded frame, so the live tail
+				// from the result slot joins the same visual block right below it.
+				return frameSlot(context, theme, true, false, 0, (lastInner) => {
+					const summary = lastInner instanceof SummaryLines ? lastInner : new SummaryLines();
+					summary.set(theme, [runningLine(shape, call)]);
+					return summary;
+				});
 			},
 			renderResult(result, options, theme, context) {
-				if (options.expanded && base?.renderResult) {
-					return base.renderResult(result, options, theme, { ...context, lastComponent: undefined });
+				const baseResult = base?.renderResult;
+				if (options.expanded && baseResult) {
+					if (selfFramed) return baseResult(result, options, theme, { ...context, lastComponent: undefined });
+					return frameSlot(context, theme, options.isPartial, context.isError, 1, (lastInner) =>
+						baseResult(result, options, theme, {
+							...context,
+							lastComponent: lastInner instanceof SummaryLines ? undefined : lastInner,
+						}),
+					);
 				}
-				const summary = slot(context);
-				const text = resultText(result);
-				if (options.isPartial) {
-					const tail = tailLine(text);
-					const lines: Seg[][] = tail ? [[{ text: tail, color: "muted", flex: true }]] : [];
-					summary.set(theme, lines);
+				return frameSlot(context, theme, options.isPartial, context.isError, 1, (lastInner) => {
+					const summary = lastInner instanceof SummaryLines ? lastInner : new SummaryLines();
+					const text = resultText(result);
+					if (options.isPartial) {
+						const tail = tailLine(text);
+						const lines: Seg[][] = tail ? [[{ text: tail, color: "muted", flex: true }]] : [];
+						summary.set(theme, lines);
+					} else {
+						const call = (context.args as Record<string, unknown> | undefined) ?? {};
+						summary.set(theme, finalLines(shape, text, call, context.isError, context.durationMs));
+					}
 					return summary;
-				}
-				const call = (context.args as Record<string, unknown> | undefined) ?? {};
-				summary.set(theme, finalLines(shape, text, call, context.isError, context.durationMs));
-				return summary;
+				});
 			},
 		};
 		return renderers;

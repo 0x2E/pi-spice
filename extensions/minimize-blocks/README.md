@@ -26,7 +26,7 @@ Quick test without installing: `pi -e ./extensions/minimize-blocks/`
 
 ## Expanding
 
-- Tool rows reuse pi's own keys — no new bindings: `ctrl+o` expands/collapses **all** tool rows. An expanded row renders exactly what stock pi shows. Clicking a row toggles **that** row, but only in fullscreen mode — regular mode leaves the mouse to the terminal. (pi's help also lists `n`, but that binding is dead in pi 1.2.0 — it types into the editor; `ctrl+o` works.)
+- Tool rows reuse pi's own keys — no new bindings: `ctrl+o` expands/collapses **all** tool rows. An expanded row renders exactly what stock pi shows. Clicking anywhere on a block — including its blank padding rows — toggles **that** block, but only in fullscreen mode; regular mode leaves the mouse to the terminal. (pi's help also lists `n`, but that binding is dead in pi 1.2.0 — it types into the editor; `ctrl+o` works.)
 - Thinking blocks: `alt+m` (or `/minimize-blocks`) toggles **all** thinking blocks between summary and full text, re-rendering history immediately.
 
 Collapsed is the default; a restart resets it.
