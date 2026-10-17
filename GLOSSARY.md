@@ -13,8 +13,8 @@ The block a tool call produces: one status-colored box holding the call slot fol
 _Avoid_: tool block, tool call block
 
 **Summary line**:
-The collapsed rendering of a tool row: one line of glyph, label, and meta. (minimize-blocks)
-_Avoid_: preview, compact line
+The collapsed rendering of a block — a tool row or a thinking block: one line of glyph, label, and meta. (minimize-blocks)
+_Avoid_: preview (reserved for thinking-preview), compact line
 
 **Preview**:
 The collapsed rendering of a thinking block: a status line plus its last two lines. (thinking-preview)

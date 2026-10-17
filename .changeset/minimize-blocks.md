@@ -1,7 +1,6 @@
 ---
 "@pi-spice/minimize-blocks": minor
-"@pi-spice/thinking-preview": minor
-"@pi-spice/all": minor
+"@pi-spice/thinking-preview": patch
 ---
 
-Add minimize-blocks: collapse built-in tool rows into one-line summaries, expandable via pi's own keys (`n`/`ctrl+o`, click). thinking-preview gains a cross-reference to its new companion extension.
+Add minimize-blocks: collapse tool rows and thinking blocks into one-line summaries. Tool rows expand via pi's own keys (`n`/`ctrl+o`, click); thinking toggles with `alt+m`. Mutually exclusive with thinking-preview, which gains a note saying so.

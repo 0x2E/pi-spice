@@ -1,42 +1,56 @@
 /**
- * minimize-blocks — collapse built-in tool rows into one-line summaries
+ * minimize-blocks — collapse tool rows and thinking blocks into one-line summaries
  *
- * pi draws every built-in tool call in full — highlighted command or diff,
- * file contents, a ~5-line output preview, a "Took" line — so a working
- * session scrolls itself out of view. This extension replaces the display of
- * the seven built-in tools (bash, edit, write, read, grep, find, ls) with
- * one-line summaries and keeps one line of error tail on failure:
+ * pi draws every block in full — highlighted command or diff, file contents,
+ * a ~5-line output preview, a "Took" line, entire reasoning streams — so a
+ * working session scrolls itself out of view. This extension collapses the
+ * display of the seven built-in tools (bash, edit, write, read, grep, find,
+ * ls) and of thinking blocks to one-line summaries, keeping one line of
+ * error tail on failure:
  *
  *   $ npm test · ✓ 3.2s
  *   ✎ src/index.ts +12 −3
+ *   ✻ thinking · 142 lines · alt+m to expand
  *   $ cargo build · ✗ 18.4s
  *   error: could not compile `pi-tui`
  *
  * While a call runs, the row shows the command plus the live last output
- * line, so long builds still show progress. Expanding reuses pi's own
- * machinery untouched: `n` / `ctrl+o` (app.tools.expand) toggles all rows,
- * clicking a row toggles that row, and expanded rows delegate to the built-in
- * renderers via the resolver's `next()`, so they render exactly what stock pi
- * shows. Collapsed is the default; a restart resets it. Display-only — the
- * session file and the model context are untouched.
+ * line, so long builds still show progress; while thinking streams, the
+ * block shows its status line plus the newest line. Expanding reuses pi's
+ * own machinery where it exists: `n` / `ctrl+o` (app.tools.expand) toggles
+ * all tool rows, clicking a row toggles that row, and expanded rows
+ * delegate to the built-in renderers via the resolver's `next()` — exactly
+ * what stock pi shows. Thinking has no built-in expand, so `alt+m` (or
+ * `/minimize-blocks`) toggles all thinking blocks between summary and full
+ * text, re-rendering history immediately. Collapsed is the default; a
+ * restart resets it. Display-only — the session file and the model context
+ * are untouched.
  *
- * Summaries are per-tool: bash shows command, status and duration; edit and
- * write the path with +/− line stats derived from the call args; read the
- * path with its line count; grep/find/ls the query with hit counts. Counts
- * come from result text lines, excluding pi's "[Showing …]" notices and
- * grep's "No matches found" line. Lines are hard-clipped to the available
- * width by plain character count, so wide characters (CJK, emoji) can render
- * up to twice the budget and wrap an occasional extra row — the same
- * accepted jitter as thinking-preview, whose preview style this extension
- * deliberately echoes for visual continuity. Pairs with
- * @pi-spice/thinking-preview (thinking blocks); the two touch disjoint
- * mechanisms and never conflict.
+ * Tool summaries are per-tool: bash shows command, status and duration;
+ * edit and write the path with +/− line stats derived from the call args;
+ * read the path with its line count; grep/find/ls the query with hit
+ * counts. Counts come from result text lines, excluding pi's "[Showing …]"
+ * notices and grep's "No matches found" line. Lines are hard-clipped to
+ * the available width by plain character count, so wide characters (CJK,
+ * emoji) can render up to twice the budget and wrap an occasional extra
+ * row — accepted as the price of simplicity.
+ *
+ * Mutually exclusive with @pi-spice/thinking-preview, which rewrites
+ * thinking display through the same transformer slot: install one or the
+ * other, not both (both READMEs say so; running both double-frames
+ * thinking blocks).
  *
  * Install: pi install npm:@pi-spice/minimize-blocks
  * Quick test: pi -e ./extensions/minimize-blocks/
  */
 
-import type { ExtensionAPI, Theme, ThemeColor, ToolRenderers } from "@earendil-works/pi-coding-agent";
+import type {
+	ExtensionAPI,
+	ExtensionContext,
+	Theme,
+	ThemeColor,
+	ToolRenderers,
+} from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
 
 /** One styled text run. `flex` marks the run that shrinks when the line overflows. */
@@ -222,6 +236,76 @@ function slot(context: { lastComponent: Component | undefined }): SummaryLines {
 	return context.lastComponent instanceof SummaryLines ? context.lastComponent : new SummaryLines();
 }
 
+// ---- Thinking blocks ----
+
+/** Columns consumed by the blockquote bar (`│ `) framing thinking blocks. */
+const THINKING_BAR_WIDTH = 2;
+
+/** Shortcut that toggles thinking between summary and full text. */
+const THINKING_TOGGLE_KEY = "alt+m";
+
+/** Sticky summary/full-text switch for thinking blocks. Resets on restart. */
+let thinkingExpanded = false;
+
+/** Markdown punctuation that could open or span rendering constructs. */
+const ESCAPE_CLASS = /[\\`*_{}[\]()<>#+\-!|~&=.:\/\\@]/g;
+
+/** Escape Markdown syntax so summaries render as verbatim plain text. */
+function escapeMarkdown(text: string): string {
+	return text.replace(ESCAPE_CLASS, (c) => `\\${c}`);
+}
+
+/** Hard-clip a line to `maxChars` code points (wide characters count once). */
+function clipLine(line: string, maxChars: number): string {
+	if (!Number.isFinite(maxChars) || maxChars <= 0) return line;
+	return chars(line).slice(0, maxChars).join("");
+}
+
+/**
+ * The display of one thinking block, as Markdown: a single status line when
+ * finished, the status line plus the newest line while streaming, and the
+ * full escaped text when toggled open — all inside one `│ `-framed
+ * blockquote, the same frame pi gives thinking.
+ */
+function thinkingMarkdown(markdown: string, isStreaming: boolean, availableWidth: number): string {
+	const text = markdown.trim();
+	if (!text) return markdown; // redacted/empty blocks render untouched
+	const lines = text.split("\n");
+	const count = `${lines.length} line${lines.length === 1 ? "" : "s"}`;
+	const width = availableWidth - THINKING_BAR_WIDTH;
+	if (thinkingExpanded) {
+		const status = `✻ thinking · ${count} · ${THINKING_TOGGLE_KEY} to collapse`;
+		// Backslash line breaks keep consecutive lines inside one blockquote
+		// from gluing into a single wrapped paragraph (CommonMark soft break).
+		const body = escapeMarkdown(text)
+			.split("\n")
+			.map((line) => (line.trim() ? `> ${line}\\` : ">"))
+			.join("\n");
+		return `> ${clipLine(status, width)}\\\n${body}`;
+	}
+	if (isStreaming) {
+		const tail = lines.filter((line) => line.trim()).at(-1) ?? "";
+		const status = `> ${clipLine(`✻ thinking · ${count}`, width)}\\`;
+		return tail ? `${status}\n> ${escapeMarkdown(clipLine(tail, width))}` : status;
+	}
+	return `> ${clipLine(`✻ thinking · ${count} · ${THINKING_TOGGLE_KEY} to expand`, width)}`;
+}
+
+/** Flip the display mode and force every message component to re-render. */
+async function toggleThinking(ctx: ExtensionContext): Promise<void> {
+	thinkingExpanded = !thinkingExpanded;
+	try {
+		// Re-propagating the hidden-thinking label makes every assistant
+		// message component re-render through this extension's transformer, so
+		// history picks up the new mode immediately — the visible flip itself is
+		// the only feedback. Side effect: a custom hidden-thinking label set
+		// elsewhere resets to its default.
+		ctx.ui.setHiddenThinkingLabel();
+	} catch {
+		// Non-interactive modes: the flag still flipped; nothing to redraw.
+	}
+}
+
 /** Collapsed headline while a call runs: glyph + label, in the call slot. */
 function runningLine(shape: ToolShape, args: Record<string, unknown>): Seg[] {
 	return [glyphSeg(shape.glyph), { text: shape.label(args), color: "toolTitle", flex: true }];
@@ -265,6 +349,7 @@ function finalLines(
 }
 
 export default function minimizeBlocks(pi: ExtensionAPI) {
+	// ---- Tool rows: render one-line summaries, delegate to pi when expanded ----
 	pi.registerToolRenderer((toolName, next) => {
 		const shape = TOOL_SHAPES[toolName];
 		if (!shape) return next(); // not one of ours: pi's rendering stays in place
@@ -305,5 +390,21 @@ export default function minimizeBlocks(pi: ExtensionAPI) {
 			},
 		};
 		return renderers;
+	});
+
+	// ---- Thinking blocks: rewrite the display through a Markdown transformer ----
+	pi.registerMarkdownTransformer((markdown, { messageType, isStreaming, availableWidth }) =>
+		messageType === "assistant-thinking" ? thinkingMarkdown(markdown, isStreaming, availableWidth) : markdown,
+	);
+
+	pi.registerShortcut(THINKING_TOGGLE_KEY, {
+		description: "Toggle thinking summary / full text",
+		handler: (ctx) => toggleThinking(ctx),
+	});
+
+	// Command fallback for when the shortcut is rebound.
+	pi.registerCommand("minimize-blocks", {
+		description: "Toggle thinking summary / full text",
+		handler: (_args, ctx) => toggleThinking(ctx),
 	});
 }

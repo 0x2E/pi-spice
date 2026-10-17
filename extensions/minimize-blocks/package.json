@@ -1,7 +1,7 @@
 {
   "name": "@pi-spice/minimize-blocks",
   "version": "0.0.0",
-  "description": "Collapse built-in tool rows into one-line summaries",
+  "description": "Collapse tool rows and thinking blocks into one-line summaries",
   "keywords": ["pi-package"],
   "license": "MIT",
   "repository": {
