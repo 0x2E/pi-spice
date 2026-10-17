@@ -2,18 +2,17 @@
   "name": "@pi-spice/monorepo",
   "version": "0.0.0",
   "private": true,
-  "description": "pi-spice monorepo container — extensions live in extensions/, the published meta-package in packages/all/",
+  "description": "pi-spice monorepo container — each extension lives in extensions/ and publishes individually",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/0x2E/pi-spice.git"
   },
   "workspaces": [
-    "extensions/*",
-    "packages/*"
+    "extensions/*"
   ],
   "scripts": {
-    "release": "cp -a extensions packages/all/extensions && changeset publish && rm -rf packages/all/extensions"
+    "release": "changeset publish"
   },
   "devDependencies": {
     "@changesets/cli": "^3.0.1",

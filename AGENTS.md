@@ -19,9 +19,9 @@ pi-spice: a monorepo of pi extensions published as individual npm packages. Each
 
 ## Versioning & Release
 
-- `@pi-spice/all` (in `packages/all/`) bundles every extension, so it rides every release. A PR touching anything under `extensions/**` adds a `.changeset/<name>.md` declaring every touched extension plus `@pi-spice/all` at the highest bumped level; CI (`.github/workflows/changeset-check.yml`) rejects PRs that skip this. New extensions start at `0.0.0`; their first changeset decides the initial version.
+- Every extension is published individually — there is no bundle package. A PR touching anything under `extensions/**` adds a `.changeset/<name>.md` declaring every touched extension; CI (`.github/workflows/changeset-check.yml`) rejects PRs that skip this. New extensions start at `0.0.0`; their first changeset decides the initial version.
 
-- A release is merging the bot's "Version Packages" PR — it bumps versions, writes CHANGELOGs, copies `extensions/` into `packages/all/`, publishes, and tags. Merge it late to batch. Feature PRs carry changesets; the Version PR alone edits version numbers.
+- A release is merging the bot's "Version Packages" PR — it bumps versions, writes CHANGELOGs, publishes, and tags. Merge it late to batch. Feature PRs carry changesets; the Version PR alone edits version numbers.
 
 - Publish runs with `ignore-scripts`: extensions must not need lifecycle scripts.
 
