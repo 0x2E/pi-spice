@@ -15,17 +15,40 @@
 // must not need a running pi.
 
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync, mkdtempSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Box, matchesKey } from "@earendil-works/pi-tui";
 
-globalThis.Box = Box;
-globalThis.matchesKey = matchesKey;
+(globalThis as { Box?: unknown }).Box = Box;
+(globalThis as { matchesKey?: unknown }).matchesKey = matchesKey;
+
+/** A Markdown transformer as pi registers it. */
+type Transformer = (markdown: string, context: { messageType: string; isStreaming: boolean; availableWidth: number }) => string;
+/** A component the harness renders. */
+type Renderable = { render(width: number): string[] };
+/** A registered tool renderer; the extension's real shapes are dynamic. */
+type Resolver = (tool: string, next: () => unknown) => any;
+/** Command/shortcut options. */
+type CommandOptions = { handler: (...args: any[]) => any };
+/** Event handler as the extension registers it. */
+type Handler = (event: any, ctx?: any) => any;
+/**
+ * The extension API surface the harness stubs. Everything crossing this
+ * boundary is `any` on purpose: the module under test is loaded with its type
+ * imports stripped, so its own types never reach the harness.
+ */
+interface ApiDouble {
+	registerToolRenderer(resolver: Resolver): void;
+	registerMarkdownTransformer(transformer: Transformer): void;
+	registerShortcut(key: string, options: CommandOptions): void;
+	registerCommand(name: string, options: CommandOptions): void;
+	on(event: string, handler: Handler): void;
+}
 
 const root = new URL("../..", import.meta.url).pathname;
-const failures = [];
-const check = (name, ok, detail = "") => {
+const failures: string[] = [];
+const check = (name: string, ok: boolean, detail = "") => {
 	console.log(`${ok ? "ok  " : "FAIL"} ${name}${detail && !ok ? ` — ${detail}` : ""}`);
 	if (!ok) failures.push(name);
 };
@@ -37,12 +60,12 @@ const stripped = readFileSync(join(root, "extensions/collapse-blocks/index.ts"),
 	.replace(/^import type[\s\S]*?from "[^"]+";\n/gm, "")
 	.replace(/^import \{ Box, matchesKey \} from "@earendil-works\/pi-tui";\n/m, "");
 writeFileSync(join(tmp, "index.ts"), stripped);
-const mod = await import(join(tmp, "index.ts"));
+const mod = (await import(join(tmp, "index.ts"))) as { default: (api: ApiDouble) => void };
 
-const transformers = [];
-const commands = new Map();
-const handlers = new Map();
-const toolResolvers = [];
+const transformers: Transformer[] = [];
+const commands = new Map<string, CommandOptions>();
+const handlers = new Map<string, Handler>();
+const toolResolvers: Resolver[] = [];
 mod.default({
 	registerToolRenderer: (r) => toolResolvers.push(r),
 	registerMarkdownTransformer: (t) => transformers.push(t),
@@ -50,27 +73,29 @@ mod.default({
 	registerCommand: (n, o) => commands.set(n, o),
 	on: (ev, h) => handlers.set(ev, h),
 });
-const resolve = (tool, base) => toolResolvers[0](tool, () => base);
+/** The registered tool renderer, with the shapes the harness drives. */
+const resolve = (tool: string, base: unknown) =>
+	toolResolvers[0](tool, () => base) as { renderCall: (...args: any[]) => Renderable; renderResult: (...args: any[]) => Renderable };
 
 // marker theme: colors and bg visible as [..] / {..} in output
 const theme = {
-	fg: (c, t) => `[${c}]${t}`,
-	bg: (c, t) => `{${c}}${t}`,
-	bold: (t) => `*${t}*`,
+	fg: (c: string, t: string) => `[${c}]${t}`,
+	bg: (c: string, t: string) => `{${c}}${t}`,
+	bold: (t: string) => `*${t}*`,
 };
-const ctx = (o = {}) => ({
+const ctx = (o: Record<string, unknown> = {}) => ({
 	isPartial: false, expanded: false, args: {}, isError: false,
 	durationMs: undefined, lastComponent: undefined, outputPad: 1, ...o,
 });
-const result = (text) => ({ content: [{ type: "text", text }] });
+const result = (text: string) => ({ content: [{ type: "text", text }] });
 const stubBase = () => ({
 	renderCall: () => ({ render: () => ["<builtin>"] }),
 	renderResult: () => ({ render: () => ["<builtin>"] }),
 });
 /** Raw rendered rows (bg markers intact) — for geometry. */
-const raw = (comp, w = 100) => comp.render(w).map((l) => l.trim()).filter(Boolean);
+const raw = (comp: Renderable, w = 100) => comp.render(w).map((l) => l.trim()).filter(Boolean);
 /** Content rows (color/bg markers stripped, padding rows dropped) — for assertions. */
-const rows = (comp, w = 100) => comp.render(w).map((l) => l.replace(/\{tool\w+Bg\}|\[[a-zA-Z]+\]/g, "").replace(/\*/g, "").trim()).filter(Boolean);
+const rows = (comp: Renderable, w = 100) => comp.render(w).map((l) => l.replace(/\{tool\w+Bg\}|\[[a-zA-Z]+\]/g, "").replace(/\*/g, "").trim()).filter(Boolean);
 
 // ---- 1. framing geometry: whole block carries the status bg ----
 {
@@ -86,7 +111,7 @@ const rows = (comp, w = 100) => comp.render(w).map((l) => l.replace(/\{tool\w+Bg
 
 // ---- 2. real arg shapes and result-text handling (pi 1.2.0) ----
 {
-	const line = (tool, text, args, extra = {}) =>
+	const line = (tool: string, text: string, args: Record<string, unknown>, extra: Record<string, unknown> = {}) =>
 		rows(resolve(tool, stubBase()).renderResult(result(text), { expanded: false, isPartial: false }, theme, ctx({ args, ...extra })));
 	const bash = line("bash", "Compiling v1\nerror: could not compile `pi-tui`\n\nCommand exited with code 101", { command: "cargo build" }, { isError: true });
 	check("bash error tail skips exit-code footer", bash.length === 2 && bash[1] === "error: could not compile `pi-tui`" && !bash.some((l) => l.includes("Command exited")), JSON.stringify(bash));
@@ -103,28 +128,28 @@ const rows = (comp, w = 100) => comp.render(w).map((l) => l.replace(/\{tool\w+Bg
 
 // ---- 3. expansion chain: live flag, command, renderer observer, key tap ----
 let flag = false;
-let tap = () => undefined;
+let tap: (data: string) => unknown = () => undefined;
 {
-	const rerenders = [];
+	const rerenders: number[] = [];
 	const ui = {
 		getToolsExpanded: () => flag,
-		setToolsExpanded: (v) => (flag = v),
+		setToolsExpanded: (v: boolean) => (flag = v),
 		setHiddenThinkingLabel: () => rerenders.push(1),
-		onTerminalInput: (h) => ((tap = h), () => {}),
+		onTerminalInput: (h: (data: string) => unknown) => ((tap = h), () => {}),
 	};
-	handlers.get("session_start")({}, { ui });
+	handlers.get("session_start")!({}, { ui });
 	check("session_start attaches key tap", typeof tap === "function");
-	check("session_start refreshes stale flag", (() => { flag = true; rerenders.length = 0; handlers.get("session_start")({}, { ui }); return rerenders.length === 1; })());
+	check("session_start refreshes stale flag", (() => { flag = true; rerenders.length = 0; handlers.get("session_start")!({}, { ui }); return rerenders.length === 1; })());
 
 	const tf = transformers[0];
-	const md = (t) => tf(t, { messageType: "assistant-thinking", isStreaming: false, availableWidth: 80 });
+	const md = (t: string) => tf(t, { messageType: "assistant-thinking", isStreaming: false, availableWidth: 80 });
 	flag = true;
 	check("transformer reads flag live (tool-less)", md("a\nb").split("\n")[0].includes("collapse"));
 	flag = false;
 	check("transformer collapses again", md("a\nb").split("\n")[0].includes("expand"));
 
-	await commands.get("collapse-blocks").handler("", {});
-	check("command flips flag + rerenders", flag === true && rerenders.length >= 1);
+	await commands.get("collapse-blocks")!.handler("", {});
+	check("command flips flag + rerenders", ui.getToolsExpanded() && rerenders.length >= 1);
 
 	flag = false; rerenders.length = 0;
 	const bash = resolve("bash", stubBase());
@@ -141,7 +166,7 @@ let tap = () => undefined;
 {
 	flag = false; // section 3 may have left it expanded
 	const tf = transformers[0];
-	const md = (t, s, w = 80) => tf(t, { messageType: "assistant-thinking", isStreaming: s, availableWidth: w });
+	const md = (t: string, s = false, w = 80) => tf(t, { messageType: "assistant-thinking", isStreaming: s, availableWidth: w });
 	check("non-thinking passes through", tf("**hi**", { messageType: "user", isStreaming: true, availableWidth: 80 }) === "**hi**");
 	check("empty passes through", md("  ", false) === "  ");
 	const stream = md("one\ntwo\nthree", true).split("\n");
@@ -154,13 +179,13 @@ let tap = () => undefined;
 // ---- 5. thinking timing: phase-only, live seconds, close, fallback ----
 {
 	const tf = transformers[0];
-	const md = (t, s, w = 80) => tf(t, { messageType: "assistant-thinking", isStreaming: s, availableWidth: w });
+	const md = (t: string, s: boolean, w = 80) => tf(t, { messageType: "assistant-thinking", isStreaming: s, availableWidth: w });
 	const realNow = Date.now;
 	/** Fire a message event with its arrival backdated `agoMs` (the clocks are stamped on arrival). */
-	const fire = (ev, deltaType, content, agoMs) => {
+	const fire = (ev: string, deltaType: string | undefined, content: unknown[], agoMs: number) => {
 		if (agoMs !== undefined) Date.now = () => realNow() - agoMs;
 		try {
-			handlers.get(ev)({
+			handlers.get(ev)!({
 				type: ev,
 				message: { role: "assistant", content },
 				...(deltaType ? { assistantMessageEvent: { type: deltaType } } : {}),
@@ -169,7 +194,7 @@ let tap = () => undefined;
 			Date.now = realNow;
 		}
 	};
-	const think = (t) => [{ type: "thinking", thinking: t }];
+	const think = (t: string) => [{ type: "thinking", thinking: t }];
 
 	check("untimed falls back to line count", md("beta\ntwo", false).split("\n")[0].includes("· 2 lines"));
 
@@ -217,7 +242,7 @@ let tap = () => undefined;
 	check("consecutive blocks key as one run", md("run three\n\nrun four", false).includes("· 2.5s"), md("run three\n\nrun four", false));
 
 	// session_start clears the in-memory table; untimed blocks fall back to lines.
-	handlers.get("session_start")({}, {
+	handlers.get("session_start")!({}, {
 		ui: { getToolsExpanded: () => false, setHiddenThinkingLabel: () => {}, onTerminalInput: () => () => {} },
 	});
 	check("session_start clears timings", md("alpha thinking", false).includes("· 1 line ·"));
@@ -228,7 +253,7 @@ let tap = () => undefined;
 	// The exports field exposes no require-condition entry and blocks subpaths;
 	// walk node_modules directly — npm hoists workspace deps to the repo root.
 	const piDir = join(root, "node_modules", "@earendil-works", "pi-coding-agent");
-	const propsOf = (tool) => {
+	const propsOf = (tool: string) => {
 		const src = execFileSync("node", ["-e", `console.log(require('fs').readFileSync(${JSON.stringify(join(piDir, "dist/core/tools", tool + ".js"))}, "utf8"))`], { encoding: "utf8" });
 		return new Set([...src.matchAll(/([A-Za-z_][\w]*):\s*Type\./g)].map((m) => m[1]));
 	};
@@ -238,7 +263,7 @@ let tap = () => undefined;
 	};
 	for (const [tool, names] of Object.entries(expected)) {
 		let props;
-		try { props = propsOf(tool); } catch (e) { check(`schema scan ${tool}`, false, e.message); continue; }
+		try { props = propsOf(tool); } catch (e) { check(`schema scan ${tool}`, false, (e as Error).message); continue; }
 		const missing = names.filter((n) => !props.has(n));
 		check(`schema contract ${tool}`, missing.length === 0, `missing: ${missing.join(", ")} (have: ${[...props].join(", ")})`);
 	}

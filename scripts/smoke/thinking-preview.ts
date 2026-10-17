@@ -17,9 +17,27 @@ import { readFileSync, writeFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+/** A Markdown transformer as pi registers it. */
+type Transformer = (markdown: string, context: { messageType: string; isStreaming: boolean; availableWidth: number }) => string;
+/** Command/shortcut options. */
+type CommandOptions = { handler: (...args: any[]) => any };
+/** Event handler as the extension registers it. */
+type Handler = (event: any, ctx?: any) => any;
+/**
+ * The extension API surface the harness stubs. Everything crossing this
+ * boundary is `any` on purpose: the module under test is loaded with its type
+ * imports stripped, so its own types never reach the harness.
+ */
+interface ApiDouble {
+	registerMarkdownTransformer(transformer: Transformer): void;
+	registerShortcut(key: string, options: CommandOptions): void;
+	registerCommand(name: string, options: CommandOptions): void;
+	on(event: string, handler: Handler): void;
+}
+
 const root = new URL("../..", import.meta.url).pathname;
-const failures = [];
-const check = (name, ok, detail = "") => {
+const failures: string[] = [];
+const check = (name: string, ok: boolean, detail = "") => {
 	console.log(`${ok ? "ok  " : "FAIL"} ${name}${detail && !ok ? ` — ${detail}` : ""}`);
 	if (!ok) failures.push(name);
 };
@@ -30,12 +48,12 @@ writeFileSync(join(tmp, "package.json"), '{"type":"module"}');
 const stripped = readFileSync(join(root, "extensions/thinking-preview/index.ts"), "utf8")
 	.replace(/^import type[\s\S]*?from "[^"]+";\n/gm, "");
 writeFileSync(join(tmp, "index.ts"), stripped);
-const mod = await import(join(tmp, "index.ts"));
+const mod = (await import(join(tmp, "index.ts"))) as { default: (api: ApiDouble) => void };
 
-const transformers = [];
-const handlers = new Map();
-const commands = new Map();
-const notifications = [];
+const transformers: Transformer[] = [];
+const handlers = new Map<string, Handler>();
+const commands = new Map<string, CommandOptions>();
+const notifications: string[] = [];
 let relabels = 0;
 mod.default({
 	registerMarkdownTransformer: (t) => transformers.push(t),
@@ -44,7 +62,7 @@ mod.default({
 	on: (ev, h) => handlers.set(ev, h),
 });
 const tf = transformers[0];
-const md = (t, s = false, w = 80) => tf(t, { messageType: "assistant-thinking", isStreaming: s, availableWidth: w });
+const md = (t: string, s = false, w = 80) => tf(t, { messageType: "assistant-thinking", isStreaming: s, availableWidth: w });
 
 // ---- 1. preview forms ----
 {
@@ -63,10 +81,10 @@ const md = (t, s = false, w = 80) => tf(t, { messageType: "assistant-thinking", 
 {
 	const realNow = Date.now;
 	/** Fire a message event with its arrival backdated `agoMs` (the clocks are stamped on arrival). */
-	const fire = (ev, deltaType, content, agoMs) => {
+	const fire = (ev: string, deltaType: string | undefined, content: unknown[], agoMs: number) => {
 		if (agoMs !== undefined) Date.now = () => realNow() - agoMs;
 		try {
-			handlers.get(ev)({
+			handlers.get(ev)!({
 				type: ev,
 				message: { role: "assistant", content },
 				...(deltaType ? { assistantMessageEvent: { type: deltaType } } : {}),
@@ -75,7 +93,7 @@ const md = (t, s = false, w = 80) => tf(t, { messageType: "assistant-thinking", 
 			Date.now = realNow;
 		}
 	};
-	const think = (t) => [{ type: "thinking", thinking: t }];
+	const think = (t: string) => [{ type: "thinking", thinking: t }];
 
 	check("untimed falls back to line count", md("beta\ntwo", false).split("\n")[0].includes("· 2 lines"));
 
@@ -110,18 +128,18 @@ const md = (t, s = false, w = 80) => tf(t, { messageType: "assistant-thinking", 
 	check("abort closes at response end", md("aborted mid-thought", false).split("\n")[0].includes("· 5.8s"), md("aborted mid-thought", false));
 
 	// session_start clears the in-memory table; untimed blocks fall back to lines.
-	handlers.get("session_start")({}, {});
+	handlers.get("session_start")!({}, {});
 	check("session_start clears timings", md("alpha thinking", false).includes("· 1 line ·"));
 }
 
 // ---- 3. expansion toggle: full text, notification, relabel re-render ----
 {
-	await commands.get("thinking-preview").handler("", { ui: { notify: (m) => notifications.push(m), setHiddenThinkingLabel: () => relabels++ } });
+	await commands.get("thinking-preview")!.handler("", { ui: { notify: (m: string) => notifications.push(m), setHiddenThinkingLabel: () => relabels++ } });
 	const full = md("l1\nl2\nl3", false).split("\n");
 	check("expanded = status + every line", full.length === 4 && full[1].includes("l1") && full[3].includes("l3"), JSON.stringify(full));
 	check("expanded status says collapse", full[0].includes("to collapse"));
 	check("toggle notifies + relabels", notifications[0] === "Thinking: full text" && relabels === 1);
-	await commands.get("thinking-preview").handler("", { ui: { notify: (m) => notifications.push(m), setHiddenThinkingLabel: () => relabels++ } });
+	await commands.get("thinking-preview")!.handler("", { ui: { notify: (m: string) => notifications.push(m), setHiddenThinkingLabel: () => relabels++ } });
 	check("toggle back collapses", md("l1\nl2\nl3", false).split("\n").length === 3 && notifications[1] === "Thinking: preview");
 }
 

@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    // The smoke harness is plain Node: it reads files, spawns processes and
+    // exits with a status. Extension code stays node-global-free (types: []).
+    "types": ["node"]
+  },
+  "include": ["scripts/**/*.ts"]
+}

@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 // Guard for the changeset discipline — run on every PR by changeset-check.yml.
 //
 // Rule (see .changeset/README.md for the human-readable version): every
@@ -14,11 +13,11 @@ import parse from "@changesets/parse";
 
 const base = process.argv[2] ?? (process.env.GITHUB_BASE_REF && `origin/${process.env.GITHUB_BASE_REF}`);
 if (!base) {
-  console.error("usage: node scripts/check-changesets.mjs <base-ref>");
+  console.error("usage: node --experimental-strip-types scripts/check-changesets.ts <base-ref>");
   process.exit(2);
 }
 
-function git(...args) {
+function git(...args: string[]) {
   return execFileSync("git", args, { encoding: "utf8" }).split("\n").filter(Boolean);
 }
 
@@ -46,7 +45,7 @@ for (const file of changesetFiles) {
   try {
     releases = parse(readFileSync(file, "utf8")).releases;
   } catch (err) {
-    errors.push(`${file}: changesets cannot parse this file (${err.message})`);
+    errors.push(`${file}: changesets cannot parse this file (${(err as Error).message})`);
     continue;
   }
   for (const release of releases) declared.set(release.name, file);
