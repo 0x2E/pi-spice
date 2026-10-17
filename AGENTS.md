@@ -27,5 +27,7 @@ pi-spice: a monorepo of pi extensions published as individual npm packages. Each
 
 ## Verification
 
-- Quick test: `pi -e ./extensions/<name>/`, or `pi -e .` for every extension at once.
-- Local install: `pi install ./extensions/<name>`.
+- `npm run check` (typecheck + smoke) before pushing — CI runs it on every PR (`.github/workflows/check.yml`). The smoke harness (`scripts/smoke/`) drives renderers and transformers with pi's real result-text shapes and fs-scans the installed pi package for the arg names the summaries read; extend it when an extension grows behavior.
+- Quick test: `pi -e ./extensions/<name>/`, or `pi -e .` for every extension at once. For interactive behavior (rendering, mouse, keys), drive a real session in a pty: `tmux new-session -d -s t 'pi -ne -e ./extensions/<name>/ --tui-mode fullscreen'`, then `tmux send-keys` / `tmux capture-pane`.
+- Before reasoning about pi UI behavior (rendering, mouse, keybindings), read the user's `~/.pi/agent/settings.json` — `tuiMode`, `theme`, and `packages` change what the user sees. Verify keybinding claims empirically: pi's help text can advertise dead bindings (`n` in 1.2.0).
+- Repo-wide sweeps need `rg --hidden` (`.changeset/` is a dot-directory).

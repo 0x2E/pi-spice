@@ -12,11 +12,19 @@
     "extensions/*"
   ],
   "scripts": {
-    "release": "changeset publish"
+    "release": "changeset publish",
+    "typecheck": "tsc -p .",
+    "smoke": "node --experimental-strip-types scripts/smoke/collapse-blocks.mjs",
+    "check": "npm run typecheck && npm run smoke"
   },
   "devDependencies": {
     "@changesets/cli": "^3.0.1",
-    "@changesets/parse": "^1.0.0"
+    "@changesets/parse": "^1.0.0",
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    "typescript": "^5.7.0",
+    "typebox": "*"
   },
   "pi": {
     "extensions": [
