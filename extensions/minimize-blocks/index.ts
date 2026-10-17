@@ -147,27 +147,44 @@ function lineCount(text: string): number {
 	return text === "" ? 0 : text.replace(/\n$/, "").split("\n").length;
 }
 
-/** pi's bracketed result notices — meta lines, not content. */
+/** pi's bracketed result notices — meta lines, not content (known prefixes only, so a JSON array's `[` line stays content). */
 function isNotice(line: string): boolean {
-	return line.startsWith("[Showing") || line.startsWith("[Full output");
+	return /^\[(Showing|Full output|Showing last|\d+ more lines in file)/.test(line);
 }
 
-/** Result lines that count as hits: non-empty, not a notice or no-hit line. */
-function hitLineCount(text: string): number {
+/** pi's status footers, excluded from tails and hit counts alike. */
+function isStatusLine(line: string): boolean {
 	return (
-		text
-			.split("\n")
-			// grep: "No matches found"; find: "No files found matching pattern".
-			.filter((line) => line.trim() !== "" && !isNotice(line) && !/^No (matches|files) found/.test(line)).length
+		line === "--" || // ripgrep context separator
+		line === "(empty directory)" ||
+		/^Command exited with code \d+/.test(line)
 	);
 }
 
-/** All content lines of a result, notices excluded (blank lines are content too). */
-function contentLineCount(text: string): number {
+/**
+ * Result lines that count as hits: non-empty, not a notice/status/no-hit line.
+ * Hit output (paths, path:line:text) never starts with "[", so the broad
+ * bracket filter is safe here while isNotice stays narrow for content.
+ */
+function hitLineCount(text: string): number {
 	return text
-		.replace(/\n$/, "")
 		.split("\n")
-		.filter((line) => !isNotice(line)).length;
+		.filter((line) => line.trim() !== "" && !line.startsWith("[") && !isStatusLine(line) && !/^No (matches|files) found/.test(line))
+		.length;
+}
+
+/**
+ * All content lines of a result. Notices ride on a trailing blank separator,
+ * so a trailing notice drops itself and that blank; blank lines elsewhere are
+ * content. (Counts context lines too when read picks them up — accepted.)
+ */
+function contentLineCount(text: string): number {
+	let lines = text.replace(/\n$/, "").split("\n");
+	if (lines.length > 0 && isNotice(lines[lines.length - 1] ?? "")) {
+		lines = lines.slice(0, -1);
+		if (lines.length > 0 && (lines[lines.length - 1] ?? "").trim() === "") lines = lines.slice(0, -1);
+	}
+	return lines.length;
 }
 
 /** edit's edits[], tolerating the legacy single-edit-at-top-level form. */
@@ -209,9 +226,11 @@ function formatDuration(ms: number): string {
 	return `${Math.floor(minutes / 60)}h ${minutes % 60}m ${total % 60}s`;
 }
 
-/** Last non-empty, non-notice line of a result — the live/error tail. */
+/** Last non-empty line of a result that is neither notice nor status — the live/error tail. */
 function tailLine(text: string): string {
-	const lines = text.split("\n").filter((line) => line.trim() !== "" && !isNotice(line));
+	const lines = text
+		.split("\n")
+		.filter((line) => line.trim() !== "" && !isNotice(line) && !isStatusLine(line));
 	return lines.length > 0 ? lines[lines.length - 1] : "";
 }
 
@@ -327,7 +346,7 @@ function escapeMarkdown(text: string): string {
 
 /** Hard-clip a line to `maxChars` code points (wide characters count once). */
 function clipLine(line: string, maxChars: number): string {
-	if (!Number.isFinite(maxChars) || maxChars <= 0) return line;
+	if (!Number.isFinite(maxChars) || maxChars <= 0) return "";
 	return chars(line).slice(0, maxChars).join("");
 }
 
@@ -486,6 +505,9 @@ export default function minimizeBlocks(pi: ExtensionAPI) {
 				if (matchesKey(data, "ctrl+o")) setTimeout(refreshThinking, 100);
 				return undefined;
 			});
+		// The flag can already be set when we (re)attach — /reload rebuilds the
+		// transcript before this fires, and thinking must not start stale.
+		refreshThinking();
 		}
 	});
 

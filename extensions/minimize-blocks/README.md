@@ -33,9 +33,9 @@ Collapsed is the default; a restart resets it.
 
 ## How it works
 
-- Covers the seven built-in tools — `bash`, `edit`, `write`, `read`, `grep`, `find`, `ls`. Other tools (MCP, custom) render unchanged. Per-tool summaries: bash shows command, status and duration; edit/write the path with `+`/`−` line stats; read the path with its line count; grep/find/ls the query with hit counts.
+- Covers the seven built-in tools — `bash`, `edit`, `write`, `read`, `grep`, `find`, `ls`. Other tools (MCP, custom) render unchanged. Per-tool summaries: bash shows command, status and duration; edit/write the path with `+`/`−` line stats; read the path with its line count; grep/find/ls the query with hit counts. Results that contain images still render the images (pi draws them outside the summary row).
 - Display-only: the session file and the model context are untouched.
-- **Mutually exclusive with [@pi-spice/thinking-preview](../thinking-preview/)**, which also collapses thinking. Install one or the other; running both double-frames thinking blocks.
+- **Mutually exclusive with [@pi-spice/thinking-preview](../thinking-preview/)**, which rewrites thinking display through the same transformer slot. Install one or the other; while both are installed the thinking display is double-framed and `ctrl+o` cannot reveal the full text until one is removed.
 
 ## License
 
