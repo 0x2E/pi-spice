@@ -4,9 +4,11 @@
 // matchesKey injected, and a marker theme, then drives the renderers and the
 // thinking transformer through the shapes pi 1.2.0 actually produces:
 // framing geometry, real arg shapes (path / edits[]), result-text notices,
-// the expansion chain (live flag, command, renderer observer, key tap), and
-// a schema contract check that fs-scans the installed pi package for the
-// parameter names the summary line reads. Any failure exits 1.
+// the expansion chain (live flag, command, renderer observer, key tap), the
+// thinking timing chain (thinking_start/delta/end events, phase-only
+// display), and schema contract checks that fs-scan the installed pi and
+// pi-ai packages for the parameter names the summaries read and the
+// render/timing forms the thinking key depends on. Any failure exits 1.
 //
 // The schema scan reads node_modules directly: the pi package's `exports`
 // field blocks deep module imports, but not file reads — and the harness
@@ -149,7 +151,79 @@ let tap = () => undefined;
 	check("narrow width clips", md("long line here", false, 12).length <= 12);
 }
 
-// ---- 5. schema contract: arg names the summary reads exist in installed pi ----
+// ---- 5. thinking timing: phase-only, live seconds, close, fallback ----
+{
+	const tf = transformers[0];
+	const md = (t, s, w = 80) => tf(t, { messageType: "assistant-thinking", isStreaming: s, availableWidth: w });
+	const realNow = Date.now;
+	/** Fire a message event with its arrival backdated `agoMs` (the clocks are stamped on arrival). */
+	const fire = (ev, deltaType, content, agoMs) => {
+		if (agoMs !== undefined) Date.now = () => realNow() - agoMs;
+		try {
+			handlers.get(ev)({
+				type: ev,
+				message: { role: "assistant", content },
+				...(deltaType ? { assistantMessageEvent: { type: deltaType } } : {}),
+			});
+		} finally {
+			Date.now = realNow;
+		}
+	};
+	const think = (t) => [{ type: "thinking", thinking: t }];
+
+	check("untimed falls back to line count", md("beta\ntwo", false).split("\n")[0].includes("· 2 lines"));
+
+	// Phase opened 8.4s ago and still streaming: whole seconds, counted up live.
+	fire("message_update", "thinking_start", think(""), 8400);
+	fire("message_update", "thinking_delta", think("alpha thinking"), 8400);
+	const live = md("alpha thinking", true).split("\n")[0];
+	check("streaming shows live whole seconds", live.includes("· 9s"), live);
+
+	// The phase closed 5.9s ago while the response went on generating text:
+	// the shown time is the phase (8.4 − 5.9 = 2.5s), never the response.
+	fire("message_update", "thinking_end", think("alpha thinking"), 5900);
+	const done = md("alpha thinking", false).split("\n")[0];
+	check("closed run shows the phase time only", done.includes("· 2.5s"), done);
+
+	// Regression (openai-completions providers): thinking_end fires only after
+	// the whole stream, so the first text event must close the phase — the
+	// counter must not run on through the text generation.
+	fire("message_update", "thinking_start", think(""), 10000);
+	fire("message_update", "thinking_delta", think("glm style run"), 10000);
+	fire("message_update", "text_delta", [...think("glm style run"), { type: "text", text: "Once" }], 2000);
+	const glmLive = md("glm style run", true).split("\n")[0];
+	check("text phase closes the phase (openai-completions)", glmLive.includes("· 8.0s"), glmLive);
+	// The stream-end thinking_end arrives late and must not extend the phase.
+	fire("message_update", "thinking_end", think("glm style run"), 0);
+	check("late thinking_end does not extend", md("glm style run", false).split("\n")[0].includes("· 8.0s"));
+
+	// A second phase in the same response (after tool calls): its own window.
+	fire("message_update", "thinking_start", [{ type: "tool_call" }, ...think("")], 4800);
+	fire("message_update", "thinking_delta", [{ type: "tool_call" }, ...think("run two")], 4800);
+	fire("message_update", "thinking_end", [{ type: "tool_call" }, ...think("run two")], 2800);
+	check("second phase keeps its own window", md("run two", false).split("\n")[0].includes("· 2.0s"), md("run two", false));
+
+	// An aborted phase (no thinking_end) closes at the response's end.
+	fire("message_update", "thinking_start", think(""), 7000);
+	fire("message_update", "thinking_delta", think("aborted mid-thought"), 7000);
+	fire("message_end", undefined, think("aborted mid-thought"), 1200);
+	check("abort closes at response end", md("aborted mid-thought", false).split("\n")[0].includes("· 5.8s"), md("aborted mid-thought", false));
+
+	// Consecutive thinking blocks render as ONE joined markdown, keyed joined,
+	// carrying the last block's phase.
+	fire("message_update", "thinking_start", think(""), 4000);
+	fire("message_update", "thinking_delta", [...think("run three"), ...think("run four")], 4000);
+	fire("message_update", "thinking_end", [...think("run three"), ...think("run four")], 1500);
+	check("consecutive blocks key as one run", md("run three\n\nrun four", false).includes("· 2.5s"), md("run three\n\nrun four", false));
+
+	// session_start clears the in-memory table; untimed blocks fall back to lines.
+	handlers.get("session_start")({}, {
+		ui: { getToolsExpanded: () => false, setHiddenThinkingLabel: () => {}, onTerminalInput: () => () => {} },
+	});
+	check("session_start clears timings", md("alpha thinking", false).includes("· 1 line ·"));
+}
+
+// ---- 6. schema contract: what the summaries read exists in installed pi ----
 {
 	// The exports field exposes no require-condition entry and blocks subpaths;
 	// walk node_modules directly — npm hoists workspace deps to the repo root.
@@ -168,6 +242,16 @@ let tap = () => undefined;
 		const missing = names.filter((n) => !props.has(n));
 		check(`schema contract ${tool}`, missing.length === 0, `missing: ${missing.join(", ")} (have: ${[...props].join(", ")})`);
 	}
+
+	// The thinking timing keys on pi's render form (blocks trimmed, runs
+	// joined "\n\n") and switches on pi-ai's thinking_start/delta/end event
+	// types — all scanned from the installed packages so host drift fails
+	// here, not in a user's terminal.
+	const compSrc = readFileSync(join(piDir, "dist/modes/interactive/components/assistant-message.js"), "utf8");
+	check("render contract: thinking blocks trimmed", compSrc.includes(".thinking.trim()"));
+	check('render contract: thinking runs joined \\n\\n', /join\("\\n\\n"\)/.test(compSrc));
+	const piAiTypes = readFileSync(join(root, "node_modules", "@earendil-works", "pi-ai", "dist/types.d.ts"), "utf8");
+	check("timing contract: pi-ai emits thinking_start/delta/end", ["thinking_start", "thinking_delta", "thinking_end"].every((t) => piAiTypes.includes(`"${t}"`)));
 }
 
 console.log(failures.length === 0 ? "\nall green" : `\n${failures.length} failure(s): ${failures.join("; ")}`);

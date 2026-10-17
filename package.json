@@ -14,7 +14,7 @@
   "scripts": {
     "release": "changeset publish",
     "typecheck": "tsc -p .",
-    "smoke": "node --experimental-strip-types scripts/smoke/collapse-blocks.mjs",
+    "smoke": "node --experimental-strip-types scripts/smoke/collapse-blocks.mjs && node --experimental-strip-types scripts/smoke/thinking-preview.mjs",
     "check": "npm run typecheck && npm run smoke"
   },
   "devDependencies": {

@@ -6,9 +6,20 @@
  * (via a Markdown transformer — display-only; the session and model context are
  * untouched) into a three-line preview:
  *
- *   ✻ thinking · 142 lines · alt+t to expand
+ *   ✻ thinking · 8.4s · alt+t to expand
  *   <second-to-last line of thinking>
  *   <last line of thinking>
+ *
+ * The status line's meta is the thinking phase's own time — measured from
+ * the message stream's thinking_start to thinking_end, or to the first
+ * text/tool-call event (openai-completions-style providers emit
+ * thinking_end only after the whole stream), so the text the response goes
+ * on to generate never counts — counting up in whole seconds while
+ * streaming and freezing to the exact phase length when it closes;
+ * each of a response's thinking runs keeps its own phase. Timings live in
+ * memory only (the session file stays untouched): blocks that streamed
+ * before this session of the extension, or after a restart, are untimed and
+ * fall back to a line count.
  *
  * The preview refreshes on every streaming token, so the block doubles as a
  * progress indicator. Preview content is plain text: Markdown syntax characters
@@ -82,18 +93,183 @@ async function toggle(ctx: ExtensionContext): Promise<void> {
 	}
 }
 
+// ---- Thinking timing ----
+
+/** Timing of one thinking run: its streaming phase, as the message events saw it. */
+interface ThinkingTiming {
+	/** Unix ms when the run's thinking_start (or first delta) arrived. */
+	start: number;
+	/** Unix ms when its thinking_end (or the response's end) arrived; undefined while streaming. */
+	end: number | undefined;
+}
+
+/**
+ * Run timings keyed by the first 64 code points of the run's display text —
+ * the same trim + "\n\n" join pi renders with, so the transformer's markdown
+ * keys back into a timing the message events recorded. While a run streams
+ * its text grows, re-keying it until it passes 64 characters; the short-lived
+ * keys become orphaned entries, harmless and capped away with the rest.
+ */
+const thinkingTimings = new Map<string, ThinkingTiming>();
+const TIMING_KEY_CHARS = 64;
+const TIMING_MAX_ENTRIES = 512;
+
+/** The thinking run currently streaming: opened at thinking_start, keyed once its text exists. */
+let liveRun: { start: number; key: string | undefined } | undefined;
+
+/** A content block as far as run identity cares: thinking blocks carry text. */
+interface MaybeThinking {
+	type: string;
+	thinking?: string;
+}
+
+/**
+ * The display text of each run of consecutive thinking blocks, mirroring
+ * pi's renderer: blocks trimmed, empty ones skipped, joined with "\n\n".
+ */
+function thinkingRuns(content: readonly MaybeThinking[]): string[] {
+	const runs: string[] = [];
+	let current: string[] = [];
+	for (const block of content) {
+		if (block.type !== "thinking") {
+			if (current.length > 0) runs.push(current.join("\n\n"));
+			current = [];
+			continue;
+		}
+		const text = (block.thinking ?? "").trim();
+		if (text) current.push(text);
+	}
+	if (current.length > 0) runs.push(current.join("\n\n"));
+	return runs;
+}
+
+/** Key a thinking run by its display text. */
+function timingKey(text: string): string {
+	return [...text].slice(0, TIMING_KEY_CHARS).join("");
+}
+
+/** Upsert a timing, refreshing insertion order; evict oldest past the cap. */
+function upsertTiming(key: string, timing: ThinkingTiming): void {
+	thinkingTimings.delete(key);
+	thinkingTimings.set(key, timing);
+	while (thinkingTimings.size > TIMING_MAX_ENTRIES) {
+		const oldest = thinkingTimings.keys().next().value; // undefined only when empty
+		if (oldest === undefined) break;
+		thinkingTimings.delete(oldest);
+	}
+}
+
+/**
+ * Track the streaming thinking phase from the message events: opened at
+ * thinking_start, re-keyed as the text grows on every delta, closed at
+ * thinking_end — or at the first text/tool-call event, because
+ * openai-completions-style providers emit thinking_end only after the whole
+ * stream and waiting for it would run the counter through the text
+ * generation. The response's end closes a run that never saw either
+ * (aborted responses, or thinking-only responses). Fallbacks keep the clock
+ * honest when an event is missed: a delta without a start opens late.
+ * Several runs in one response each keep their own phase; a run of
+ * consecutive blocks renders joined and shows the last block's phase.
+ */
+function onThinkingEvent(eventType: string | undefined, content: readonly MaybeThinking[]): void {
+	const now = Date.now();
+	if (eventType === "thinking_start") {
+		liveRun = { start: now, key: undefined };
+		return;
+	}
+	if (eventType === "thinking_delta") {
+		const key = timingKey(thinkingRuns(content).at(-1) ?? "");
+		if (!key) return; // redacted/empty: nothing displayable to time yet
+		liveRun ??= { start: now, key: undefined }; // missed the start: open late
+		liveRun.key = key;
+		upsertTiming(key, { start: liveRun.start, end: undefined });
+		return;
+	}
+	if (eventType === "thinking_end") {
+		const key = timingKey(thinkingRuns(content).at(-1) ?? "");
+		if (liveRun && key) upsertTiming(key, { start: liveRun.start, end: now });
+		liveRun = undefined;
+		return;
+	}
+	// First text/tool-call event: the phase is over. Providers that emit
+	// thinking_end at its native boundary have already closed the run above;
+	// openai-completions-style providers only emit it after the whole stream.
+	if (liveRun?.key) {
+		upsertTiming(liveRun.key, { start: liveRun.start, end: now });
+		liveRun = undefined;
+	}
+}
+
+/** Close a still-open phase at the response's end (abort path); forget the live run. */
+function onAssistantMessageEnd(): void {
+	if (liveRun?.key) upsertTiming(liveRun.key, { start: liveRun.start, end: Date.now() });
+	liveRun = undefined;
+}
+
+/** Finished thinking time, mirroring pi's own duration formatting. */
+function formatDuration(ms: number): string {
+	if (ms < 1000) return `${Math.round(ms)}ms`;
+	const seconds = ms / 1000;
+	if (seconds < 60) return `${seconds.toFixed(1)}s`;
+	const total = Math.floor(seconds);
+	const minutes = Math.floor(total / 60);
+	if (minutes < 60) return `${minutes}m ${total % 60}s`;
+	return `${Math.floor(minutes / 60)}h ${minutes % 60}m ${total % 60}s`;
+}
+
+/** Live thinking time: whole seconds — a calmer counter than formatDuration's decimals. */
+function streamingDuration(ms: number): string {
+	const total = Math.max(1, Math.ceil(ms / 1000));
+	const minutes = Math.floor(total / 60);
+	if (minutes < 1) return `${total}s`;
+	if (minutes < 60) return `${minutes}m ${total % 60}s`;
+	return `${Math.floor(minutes / 60)}h ${minutes % 60}m ${total % 60}s`;
+}
+
+/**
+ * The meta segment of the status line: the phase's time when known — exact
+ * once closed, whole seconds counting up while streaming — and the line
+ * count only when untimed (blocks that streamed before this session of the
+ * extension, restarted or restored sessions).
+ */
+function thinkingMeta(markdown: string, lineCount: number, isStreaming: boolean): string {
+	const timing = thinkingTimings.get(timingKey(markdown));
+	if (timing) {
+		if (timing.end !== undefined) return formatDuration(Math.max(0, timing.end - timing.start));
+		if (isStreaming) return streamingDuration(Math.max(0, Date.now() - timing.start));
+	}
+	return `${lineCount} line${lineCount === 1 ? "" : "s"}`;
+}
+
 export default function (pi: ExtensionAPI) {
-	pi.registerMarkdownTransformer((markdown, { messageType, availableWidth }) => {
+	// The thinking phase is timed from the message events (thinking_start /
+	// thinking_delta / thinking_end); timings live in memory only, so a new
+	// session starts with a clean table and history falls back to line counts.
+	pi.on("message_update", (event) => {
+		if (event.message.role === "assistant") onThinkingEvent(event.assistantMessageEvent?.type, event.message.content);
+	});
+	pi.on("message_end", (event) => {
+		if (event.message.role === "assistant") onAssistantMessageEnd();
+	});
+	pi.on("session_start", () => {
+		thinkingTimings.clear();
+		liveRun = undefined;
+	});
+
+	pi.registerMarkdownTransformer((markdown, { messageType, isStreaming, availableWidth }) => {
 		if (messageType !== "assistant-thinking") return markdown;
 		const text = markdown.trim();
 		if (!text) return markdown;
 
-		// Simple by design: count lines as-is, show the last two non-empty lines,
-		// each clipped to the terminal width by plain character count — no
+		// Simple by design: fall back to counting lines when the phase time is
+		// unknown; otherwise the status line carries the time (see
+		// thinkingMeta). The last two non-empty lines preview the stream, each
+		// clipped to the terminal width by plain character count — no
 		// per-charset width math, so wide characters may wrap an extra row.
 		const lines = text.split("\n");
 		const action = expanded ? "to collapse" : "to expand";
-		const status = `✻ thinking · ${lines.length} line${lines.length === 1 ? "" : "s"} · ${TOGGLE_KEY} ${action}`;
+		const meta = thinkingMeta(markdown, lines.length, isStreaming);
+		const status = `✻ thinking · ${meta} · ${TOGGLE_KEY} ${action}`;
 		const width = availableWidth - QUOTE_BAR_WIDTH;
 		const statusLine = clipLine(status, width);
 
