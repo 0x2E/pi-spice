@@ -59,7 +59,7 @@ import type {
 	ThemeColor,
 	ToolRenderers,
 } from "@earendil-works/pi-coding-agent";
-import { Box } from "@earendil-works/pi-tui";
+import { Box, matchesKey } from "@earendil-works/pi-tui";
 import type { Component } from "@earendil-works/pi-tui";
 
 /** One styled text run. `flex` marks the run that shrinks when the line overflows. */
@@ -286,23 +286,28 @@ function frameSlot(
 const THINKING_BAR_WIDTH = 2;
 
 /**
- * pi's global tool-expansion flag, mirrored here so thinking expands with
+ * pi's global tool-expansion flag, read live so thinking expands with
  * `ctrl+o` together with every tool row — no separate key of our own.
  */
-let toolsExpanded = false;
-
-/** UI handle for forcing thinking re-renders when the flag flips. */
 let ui: ExtensionUIContext | undefined;
 
-/** Record pi's global expansion state; when it flips, redraw thinking blocks. */
-function syncExpanded(expanded: boolean): void {
-	if (expanded === toolsExpanded) return;
-	toolsExpanded = expanded;
+/** Last expansion state we forced a thinking re-render for. */
+let lastExpanded = false;
+
+/**
+ * If pi's global expansion flag moved, re-render every thinking block.
+ * Assistant message components are not expandable, so nothing else redraws
+ * them when `ctrl+o` flips the flag; re-propagating the hidden-thinking
+ * label forces each one through this transformer again. Observed from two
+ * places — the tool renderers (which see the flag on every render) and a
+ * terminal listener for the key itself, so tool-less sessions keep working.
+ */
+function refreshThinking(): void {
+	const expanded = ui?.getToolsExpanded() ?? false;
+	if (expanded === lastExpanded) return;
+	lastExpanded = expanded;
 	try {
-		// Assistant message components are not expandable, so ctrl+o does not
-		// re-render them by itself; re-propagating the hidden-thinking label
-		// forces every one through this transformer with the fresh flag. Side
-		// effect: a custom hidden-thinking label set elsewhere resets to default.
+		// Side effect: a custom hidden-thinking label set elsewhere resets.
 		ui?.setHiddenThinkingLabel();
 	} catch {
 		// Non-interactive modes have nothing to redraw.
@@ -338,7 +343,7 @@ function thinkingMarkdown(markdown: string, isStreaming: boolean, availableWidth
 	const lines = text.split("\n");
 	const count = `${lines.length} line${lines.length === 1 ? "" : "s"}`;
 	const width = availableWidth - THINKING_BAR_WIDTH;
-	if (toolsExpanded) {
+	if (ui?.getToolsExpanded()) {
 		const status = `✻ thinking · ${count} · ${EXPAND_KEY} to collapse`;
 		// Backslash line breaks keep consecutive lines inside one blockquote
 		// from gluing into a single wrapped paragraph (CommonMark soft break).
@@ -413,7 +418,7 @@ export default function minimizeBlocks(pi: ExtensionAPI) {
 		// under the default shell the region only covers the text lines.
 			renderShell: "self",
 			renderCall(args, theme, context) {
-				syncExpanded(context.expanded);
+				refreshThinking();
 				// Args can be absent on invalid calls (pi's own renderers guard `args?.…`).
 				const call = (args as Record<string, unknown> | undefined) ?? {};
 				const baseCall = base?.renderCall;
@@ -438,7 +443,7 @@ export default function minimizeBlocks(pi: ExtensionAPI) {
 				});
 			},
 			renderResult(result, options, theme, context) {
-				syncExpanded(context.expanded);
+				refreshThinking();
 				const baseResult = base?.renderResult;
 				if (options.expanded && baseResult) {
 					if (selfFramed) return baseResult(result, options, theme, { ...context, lastComponent: undefined });
@@ -468,8 +473,20 @@ export default function minimizeBlocks(pi: ExtensionAPI) {
 	});
 
 	// ---- Thinking blocks: rewrite the display through a Markdown transformer ----
+	let unsubscribeInput: (() => void) | undefined;
 	pi.on("session_start", (_event, ctx) => {
+		unsubscribeInput?.();
+		unsubscribeInput = undefined;
 		ui = ctx.ui;
+		// The tool renderers observe the flag too, but a session with no tool
+		// rows has no observer — watch the key itself. The flag flips while the
+		// app dispatches this same keypress, so look at it a tick later.
+		if (typeof ctx.ui.onTerminalInput === "function") {
+			unsubscribeInput = ctx.ui.onTerminalInput((data) => {
+				if (matchesKey(data, "ctrl+o")) setTimeout(refreshThinking, 100);
+				return undefined;
+			});
+		}
 	});
 
 	// Command fallback for when ctrl+o is rebound (tree view cycles filters on
@@ -479,7 +496,8 @@ export default function minimizeBlocks(pi: ExtensionAPI) {
 		description: "Toggle all blocks between summary and full text",
 		handler: async () => {
 			try {
-				ui?.setToolsExpanded(!toolsExpanded);
+				ui?.setToolsExpanded(!ui.getToolsExpanded());
+				refreshThinking();
 			} catch {
 				// Non-interactive modes have nothing to toggle.
 			}
