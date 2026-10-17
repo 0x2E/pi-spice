@@ -1,5 +1,5 @@
 /**
- * minimize-blocks — collapse tool rows and thinking blocks into one-line summaries
+ * collapse-blocks — collapse tool rows and thinking blocks into one-line summaries
  *
  * pi draws every block in full — highlighted command or diff, file contents,
  * a ~5-line output preview, a "Took" line, entire reasoning streams — so a
@@ -28,7 +28,7 @@
  * with the same `ctrl+o`: the tool renderers mirror pi's global expansion
  * flag, thinking renders full text while it is set, and the flag flipping
  * forces every message component through the transformer again. The
- * `/minimize-blocks` command drives the same flag for when `ctrl+o` is
+ * `/collapse-blocks` command drives the same flag for when `ctrl+o` is
  * rebound (tree view cycles filters on it, for instance). No separate
  * keybinding. Collapsed is the default; a
  * restart resets it. Display-only — the session file and the model context
@@ -48,8 +48,8 @@
  * other, not both (both READMEs say so; running both double-frames
  * thinking blocks).
  *
- * Install: pi install npm:@pi-spice/minimize-blocks
- * Quick test: pi -e ./extensions/minimize-blocks/
+ * Install: pi install npm:@pi-spice/collapse-blocks
+ * Quick test: pi -e ./extensions/collapse-blocks/
  */
 
 import type {
@@ -514,7 +514,7 @@ export default function minimizeBlocks(pi: ExtensionAPI) {
 	// Command fallback for when ctrl+o is rebound (tree view cycles filters on
 	// it, for instance). Drives pi's own global flag; the renderer-side mirror
 	// then brings thinking along.
-	pi.registerCommand("minimize-blocks", {
+	pi.registerCommand("collapse-blocks", {
 		description: "Toggle all blocks between summary and full text",
 		handler: async () => {
 			try {

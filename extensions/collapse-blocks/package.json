@@ -1,5 +1,5 @@
 {
-  "name": "@pi-spice/minimize-blocks",
+  "name": "@pi-spice/collapse-blocks",
   "version": "0.0.0",
   "description": "Collapse tool rows and thinking blocks into one-line summaries",
   "keywords": ["pi-package"],
@@ -7,7 +7,7 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/0x2E/pi-spice.git",
-    "directory": "extensions/minimize-blocks"
+    "directory": "extensions/collapse-blocks"
   },
   "pi": {
     "extensions": ["./index.ts"]
