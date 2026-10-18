@@ -2,26 +2,18 @@
  * render.ts — TUI presentation for minimal-subagents
  *
  * All rendering for the spawn_agents tool call and its (possibly still
- * streaming) result: collapsed/expanded views per agent, tool-call lines
+ * streaming) result: collapsed/expanded views of one agent, tool-call lines
  * mimicking pi's built-in tool formatting, usage stats, and markdown final
- * output. Pure presentation — no spawning logic here.
+ * output. The alt+a panel owns the multi-agent, cross-call view. Pure
+ * presentation — no spawning logic here.
  */
 
 import * as os from "node:os";
 import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { Message } from "@earendil-works/pi-ai";
 import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
-import { Container, Markdown, Spacer, Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import {
-	getFinalOutput,
-	isFailedResult,
-	type AgentSpec,
-	type SingleResult,
-	type SubagentDetails,
-} from "./spawn.ts";
-
-/** Structural view of the tool's args — avoids a type-only import cycle with index.ts. */
-export type SpawnAgentsArgs = { agents?: AgentSpec[] };
+import { type Component, Container, Markdown, Spacer, Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { getFinalOutput, isFailedResult, type SingleResult } from "./spawn.ts";
 
 /** Structural slice of pi's theme object — keeps this file decoupled from theme internals. */
 export interface RenderTheme {
@@ -175,22 +167,37 @@ function getDisplayItems(messages: Message[]): DisplayItem[] {
 	return items;
 }
 
-export function renderSpawnCall(args: SpawnAgentsArgs, theme: RenderTheme): Text {
-	// One line only: agent names and task previews live in the result blocks
-	// (seeded the moment the tool starts), so repeating them here would just
-	// duplicate the list below.
-	const count = args.agents?.length;
-	if (count) {
-		const text =
-			theme.fg("toolTitle", theme.bold("spawn_agents ")) +
-			theme.fg("accent", `(${count} agent${count > 1 ? "s" : ""})`);
-		return new Text(text, 0, 0);
-	}
-	return new Text(theme.fg("toolTitle", theme.bold("spawn_agents")), 0, 0);
+/**
+ * The call slot stays empty. Only the result knows the agent's resolved name —
+ * the default `agent-N` is assigned by the extension, not present in the raw
+ * args — and only the result knows the status, so the result draws the whole
+ * row: name and status on one line, the task underneath.
+ */
+const emptySlot: Component = { render: () => [], invalidate: () => {} };
+
+export function renderSpawnCall(): Component {
+	return emptySlot;
 }
 
-function isAgentRunning(details: SubagentDetails): boolean {
-	return details.results.some((r) => r.exitCode === -1);
+/** Width available to one block line: the terminal minus pi's box padding. */
+function bodyWidth(): number {
+	return Math.max(1, terminalColumns() - BLOCK_INSET);
+}
+
+/** The agent's identity with its status right after it: `subagent t1  ✓ 7s · 1 tool`. */
+function agentHeader(r: SingleResult, theme: RenderTheme, status: string): string {
+	return `${theme.fg("toolTitle", theme.bold("subagent"))} ${theme.fg("accent", r.name)}  ${status}`;
+}
+
+/** Right-hand fragment: glyph plus duration/tools, or the queued state. */
+function statusText(r: SingleResult, theme: RenderTheme): string {
+	return isQueued(r)
+		? `${statusGlyph(r, theme)} ${theme.fg("muted", "queued")}`
+		: `${statusGlyph(r, theme)} ${theme.fg("dim", headerStats(r))}`;
+}
+
+function isAgentRunning(result: SingleResult): boolean {
+	return result.phase !== "finished";
 }
 
 // --- glyph system ------------------------------------------------------------
@@ -198,7 +205,8 @@ function isAgentRunning(details: SubagentDetails): boolean {
 // column alignment): ✻ running · queued ✓ done ✗ failed.
 
 function statusGlyph(r: SingleResult, theme: RenderTheme): string {
-	if (r.exitCode === -1) return r.messages.length === 0 ? theme.fg("muted", "·") : theme.fg("warning", "✻");
+	if (r.phase === "queued") return theme.fg("muted", "·");
+	if (r.phase === "running") return theme.fg("warning", "✻");
 	return isFailedResult(r) ? theme.fg("error", "✗") : theme.fg("success", "✓");
 }
 
@@ -224,27 +232,7 @@ function agentDuration(r: SingleResult): number {
 	return Math.max(0, (r.endedAt ?? Date.now()) - r.startedAt);
 }
 
-/** Whole-call wall time: earliest start to latest end. */
-function callDuration(details: SubagentDetails): number {
-	const start = Math.min(...details.results.map((r) => r.startedAt));
-	const end = Math.max(...details.results.map((r) => r.endedAt ?? Date.now()));
-	return Math.max(0, end - start);
-}
-
-function aggregateUsage(results: SingleResult[]) {
-	const total = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, turns: 0 };
-	for (const r of results) {
-		total.input += r.usage.input;
-		total.output += r.usage.output;
-		total.cacheRead += r.usage.cacheRead;
-		total.cacheWrite += r.usage.cacheWrite;
-		total.cost += r.usage.cost;
-		total.turns += r.usage.turns;
-	}
-	return total;
-}
-
-/** Duration + tool count + (once finished) tokens and cost — expanded headers. */
+/** Duration + tool count, plus tokens and cost once the agent has finished. */
 function headerStats(r: SingleResult): string {
 	const parts = [formatDuration(agentDuration(r))];
 	const tools = toolUseCount(r.messages);
@@ -253,14 +241,6 @@ function headerStats(r: SingleResult): string {
 		if (r.usage.output) parts.push(`↓${formatTokens(r.usage.output)}`);
 		if (r.usage.cost) parts.push(`$${r.usage.cost.toFixed(4)}`);
 	}
-	return parts.join(" · ");
-}
-
-/** Duration + tool count only — collapsed headers; tokens/cost live on the summary line. */
-function collapsedStats(r: SingleResult): string {
-	const parts = [formatDuration(agentDuration(r))];
-	const tools = toolUseCount(r.messages);
-	if (tools) parts.push(`${tools} tool${tools > 1 ? "s" : ""}`);
 	return parts.join(" · ");
 }
 
@@ -283,112 +263,61 @@ function runningActivity(r: SingleResult, theme: RenderTheme): string | null {
 }
 
 function isQueued(r: SingleResult): boolean {
-	return r.exitCode === -1 && r.messages.length === 0;
+	return r.phase === "queued";
 }
 
 /**
- * Collapsed view under the one-line call header: per agent, a glyph + name +
- * stats line, then the first task line; running agents add a latest-activity
- * line. Failures put the error on the header. A blank line separates the
- * running hint or finished totals from the agent rows.
+ * Collapsed view: the agent and its status share one line, the task sits
+ * underneath, and a live agent adds its latest activity plus the panel hint.
+ * Failures put their reason on the line after the task.
  */
-function scoreboardView(details: SubagentDetails, theme: RenderTheme): Text {
-	const results = details.results;
-	const running = results.filter((r) => r.exitCode === -1).length;
-	const successCount = results.filter((r) => r.exitCode !== -1 && !isFailedResult(r)).length;
-	const failCount = results.length - running - successCount;
-	const isRunning = running > 0;
+function scoreboardView(r: SingleResult, theme: RenderTheme): Text {
+	const width = bodyWidth();
+	const rowCols = Math.max(1, width - ROW_INDENT);
+	const lines = [truncateVisual(agentHeader(r, theme, statusText(r, theme)), width)];
 
-	let summary = "";
-	if (!isRunning && results.length > 1) {
-		const parts = [`${successCount}/${results.length}`];
-		if (failCount > 0) parts.push(`${failCount} failed`);
-		parts.push(formatDuration(callDuration(details)));
-		const total = aggregateUsage(results);
-		const totalTools = results.reduce((n, r) => n + toolUseCount(r.messages), 0);
-		if (totalTools > 0) parts.push(`${totalTools} tools`);
-		if (total.output) parts.push(`↓${formatTokens(total.output)}`);
-		if (total.cost) parts.push(`$${total.cost.toFixed(4)}`);
-		summary = parts.join(" · ");
-	}
+	const task = taskFirstLine(r.task);
+	if (task) lines.push(`${" ".repeat(ROW_INDENT)}${truncateVisual(theme.fg("dim", task), rowCols)}`);
+	if (isFailedResult(r)) lines.push(`${" ".repeat(ROW_INDENT)}${truncateVisual(theme.fg("error", failReason(r)), rowCols)}`);
 
-	// Label models only when the call mixes them — a uniform call would
-	// just repeat the parent's model on every block.
-	const models = new Set(results.map((r) => r.model).filter(Boolean));
-	const showModels = models.size > 1;
-	const cols = terminalColumns();
-	const headerCols = Math.max(1, cols - BLOCK_INSET);
-	const rowCols = Math.max(1, headerCols - ROW_INDENT);
-
-	const lines: string[] = [];
-	for (const r of results) {
-		let header = `${statusGlyph(r, theme)} ${theme.fg("toolTitle", theme.bold(r.name))}`;
-		if (!isQueued(r)) header += ` ${theme.fg("dim", collapsedStats(r))}`;
-		if (showModels && r.model) header += ` ${theme.fg("dim", r.model.split("/").pop() ?? r.model)}`;
-		if (isFailedResult(r)) header += `  ${theme.fg("error", failReason(r))}`;
-		lines.push(truncateVisual(header, headerCols));
-
-		const task = taskFirstLine(r.task);
-		if (task) lines.push(`${" ".repeat(ROW_INDENT)}${truncateVisual(theme.fg("dim", task), rowCols)}`);
-
-		const activity = runningActivity(r, theme);
-		if (activity) lines.push(`${" ".repeat(ROW_INDENT)}${truncateVisual(activity, rowCols)}`);
-	}
-	// Blank line so the call-total status rows read as a footer, not as another agent row.
-	if (summary || isRunning) lines.push("");
-	if (summary) lines.push(truncateVisual(theme.fg("dim", summary), headerCols));
-	if (isRunning) lines.push(truncateVisual(theme.fg("muted", "alt+a live details"), headerCols));
+	const activity = runningActivity(r, theme);
+	if (activity) lines.push(`${" ".repeat(ROW_INDENT)}${truncateVisual(activity, rowCols)}`);
+	if (isAgentRunning(r)) lines.push(truncateVisual(theme.fg("muted", "alt+a live details"), width));
 	return new Text(lines.join("\n"), 0, 0);
 }
 
 export function renderSpawnResult(
-	result: AgentToolResult<SubagentDetails>,
+	result: AgentToolResult<SingleResult>,
 	{ expanded }: { expanded: boolean },
 	theme: RenderTheme,
 ): Text | Container {
-	const details = result.details as SubagentDetails | undefined;
-	if (!details || details.results.length === 0) {
+	const agent = result.details as SingleResult | undefined;
+	if (!agent) {
 		const text = result.content[0];
 		return new Text(text?.type === "text" ? text.text : "(no output)", 0, 0);
 	}
 
-	const mdTheme = getMarkdownTheme();
-
-	if (expanded && !isAgentRunning(details)) {
-		// Expanded (ctrl+o, after completion): one block per agent with a
-		// quantified header and the final output as Markdown. The panel (alt+a)
-		// owns the per-tool timeline, so the transcript does not repeat it.
+	if (expanded && !isAgentRunning(agent)) {
+		// Expanded (ctrl+o, after completion): a quantified header and the final
+		// output as Markdown. The panel (alt+a) owns the per-tool timeline, so
+		// the transcript does not repeat it.
+		const r = agent;
 		const container = new Container();
-		details.results.forEach((r, i) => {
-			if (i > 0) container.addChild(new Spacer(1));
-			const isError = isFailedResult(r);
-			let header = `${statusGlyph(r, theme)} ${theme.fg("toolTitle", theme.bold(r.name))} ${theme.fg("dim", headerStats(r))}`;
-			if (isError && r.stopReason) header += ` ${theme.fg("error", `[${r.stopReason}]`)}`;
-			container.addChild(new Text(header, 0, 0));
-			if (isError && r.errorMessage)
-				container.addChild(new Text(theme.fg("error", `Error: ${r.errorMessage}`), 0, 0));
-			container.addChild(new Text(theme.fg("muted", "Task: ") + theme.fg("dim", r.task), 0, 0));
-			const finalOutput = getFinalOutput(r.messages);
-			if (finalOutput.trim()) {
-				container.addChild(new Spacer(1));
-				container.addChild(new Markdown(finalOutput.trim(), 0, 0, mdTheme));
-			} else {
-				container.addChild(new Text(theme.fg("muted", "(no output)"), 0, 0));
-			}
-		});
-		if (details.results.length > 1) {
-			// Same shape as the collapsed header, prefixed with Total.
-			const total = aggregateUsage(details.results);
-			const totalTools = toolUseCount(details.results.flatMap((r) => r.messages));
-			const headParts = [formatDuration(callDuration(details))];
-			if (totalTools > 0) headParts.push(`${totalTools} tools`);
-			if (total.output) headParts.push(`↓${formatTokens(total.output)}`);
-			if (total.cost) headParts.push(`$${total.cost.toFixed(4)}`);
+		const isError = isFailedResult(r);
+		const status = `${statusGlyph(r, theme)} ${theme.fg("dim", headerStats(r))}${isError && r.stopReason ? ` ${theme.fg("error", `[${r.stopReason}]`)}` : ""}`;
+		container.addChild(new Text(truncateVisual(agentHeader(r, theme, status), bodyWidth()), 0, 0));
+		if (isError && r.errorMessage)
+			container.addChild(new Text(theme.fg("error", `Error: ${r.errorMessage}`), 0, 0));
+		container.addChild(new Text(theme.fg("muted", "Task: ") + theme.fg("dim", r.task), 0, 0));
+		const finalOutput = getFinalOutput(r.messages);
+		if (finalOutput.trim()) {
 			container.addChild(new Spacer(1));
-			container.addChild(new Text(theme.fg("dim", `Total: ${headParts.join(" · ")}`), 0, 0));
+			container.addChild(new Markdown(finalOutput.trim(), 0, 0, getMarkdownTheme()));
+		} else {
+			container.addChild(new Text(theme.fg("muted", "(no output)"), 0, 0));
 		}
 		return container;
 	}
 
-	return scoreboardView(details, theme);
+	return scoreboardView(agent, theme);
 }
