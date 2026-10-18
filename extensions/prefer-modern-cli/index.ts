@@ -1,22 +1,23 @@
 /**
- * prefer-modern-cli — prefer modern CLI tools (`rg`, `fd`, …) in bash commands
+ * prefer-modern-cli — prefer modern CLI tools such as `rg` and `fd`
  *
- * Probes each tool (managed `~/.pi/agent/bin`, then PATH) once per instance.
- * Available tools get one preference line in the system prompt when bash is
- * active. Session start fires a one-line availability badge. Missing tools
- * are skipped — a preference for a missing binary would only fail.
+ * Probes each tool (managed `~/.pi/agent/bin`, then PATH) once per extension
+ * instance. When bash is active, each available tool adds one preference line
+ * to the system prompt; an interactive session start shows a one-line
+ * availability badge. Missing tools are skipped — a preference for a missing
+ * binary would only fail.
  *
  * Nothing is blocked or rewritten. Current entries: `rg` over grep/egrep/ack,
  * `fd` over find. pi's built-in `grep`/`find` tools are already ripgrep/fd-backed.
  *
  * Install: pi install npm:@pi-spice/prefer-modern-cli
- * Quick test: pi -e ./extensions/prefer-modern-cli
+ * Quick test: pi -e ./extensions/prefer-modern-cli/
  */
 
 import { getAgentDir, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { join } from "node:path";
 
-/** Tool pairs: modern replacement vs. legacy command it supersedes. */
+/** Modern tool and the preference line it adds. */
 const TOOLS = [
 	{
 		name: "rg",
@@ -64,8 +65,8 @@ export default function preferModernCli(pi: ExtensionAPI) {
 			return available;
 		})());
 
-	// One-shot notice when a session starts (startup/new/resume/fork/reload all
-	// count): a self-contained status badge on one line. "info" renders as a
+	// One-shot notice at interactive session start (startup/new/resume/fork/
+	// reload): a self-contained status badge on one line. "info" renders as a
 	// dim transcript line; embedded theme colors override that dim base.
 	pi.on("session_start", async (_event, ctx) => {
 		if (!ctx.hasUI) return;
@@ -78,9 +79,9 @@ export default function preferModernCli(pi: ExtensionAPI) {
 	});
 
 	pi.on("before_agent_start", async (event) => {
-		// Only relevant when the bash tool is active — otherwise the tool choice
-		// never comes up in a bash command. An omitted list means pi's defaults,
-		// which include bash.
+		// Only add the section when bash is active; otherwise the preference
+		// never applies. An omitted list means the defaults, so fall back to
+		// the active tools.
 		const selected = event.systemPromptOptions.selectedTools;
 		const hasBash = selected?.includes("bash") ?? pi.getActiveTools().includes("bash");
 		if (!hasBash) return;

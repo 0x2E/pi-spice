@@ -1,6 +1,6 @@
 # @pi-spice/prefer-modern-cli
 
-Prefers modern CLI tools such as `rg` and `fd`. Prompt-only — nothing is blocked or rewritten.
+Prefer modern CLI tools such as `rg` and `fd`. Prompt-only — nothing is blocked or rewritten.
 
 ## Install
 
@@ -8,11 +8,11 @@ Prefers modern CLI tools such as `rg` and `fd`. Prompt-only — nothing is block
 pi install npm:@pi-spice/prefer-modern-cli
 ```
 
-Quick test (from this repo): `pi -e ./extensions/prefer-modern-cli`
+Quick test without installing: `pi -e ./extensions/prefer-modern-cli/`
 
 ## How it works
 
-If `rg` or `fd` is available, a preference is added to the system prompt:
+When the `bash` tool is active, each available tool adds one line to the system prompt:
 
 ```
 ## CLI Tool Preferences
@@ -21,7 +21,7 @@ If `rg` or `fd` is available, a preference is added to the system prompt:
 - Prefer `fd` over `find` in bash commands.
 ```
 
-At session start, a badge shows what's available:
+In interactive sessions, a badge at session start shows what's available:
 
 ```
 ◆ prefer-modern-cli  rg ✓ · fd ✗

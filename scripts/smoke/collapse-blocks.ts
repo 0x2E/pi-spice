@@ -1,18 +1,14 @@
 // Smoke harness for @pi-spice/collapse-blocks — run via `npm run smoke`.
 //
-// Loads the extension with type-only imports stripped, pi-tui's real Box and
-// matchesKey injected, and a marker theme, then drives the renderers and the
-// thinking transformer through the shapes pi actually produces:
-// framing geometry, real arg shapes (path / edits[]), result-text notices,
-// the expansion chain (live flag, command, renderer observer, key tap), the
-// thinking timing chain (thinking_start/delta/end events, phase-only
-// display), and schema contract checks that fs-scan the installed pi and
-// pi-ai packages for the parameter names the summaries read and the
-// render/timing forms the thinking key depends on. Any failure exits 1.
+// Loads the extension with type-only imports stripped and pi-tui's Box and
+// matchesKey injected, then drives the renderers and thinking transformer
+// through pi's real arg and result shapes: framing, per-tool summaries,
+// expansion (flag, command, renderer, key tap) and thinking timing. Contract
+// checks fs-scan the installed pi/pi-ai packages for the parameter names and
+// render/timing forms the extension depends on. Any failure exits 1.
 //
-// The schema scan reads node_modules directly: the pi package's `exports`
-// field blocks deep module imports, but not file reads — and the harness
-// must not need a running pi.
+// The scans read node_modules directly: pi's `exports` field blocks deep
+// imports, not file reads, and the harness must not need a running pi.
 
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync, mkdtempSync } from "node:fs";

@@ -1,17 +1,13 @@
 // Smoke harness for @pi-spice/thinking-preview — run via `npm run smoke`.
 //
 // Loads the extension with type-only imports stripped and drives the thinking
-// transformer through the shapes pi actually produces: preview and expanded
-// forms, escaping, width clipping — and the thinking timing chain
-// (thinking_start/delta/end events; phase-only display: whole seconds while
-// streaming, exact when the phase closes, line-count fallback when untimed).
-// Plus contract scans of the installed packages for what timing keys on:
-// pi's trim + "\n\n" join of thinking runs, and pi-ai's thinking event
-// types. Any failure exits 1.
+// transformer through pi's real shapes: preview/expanded forms, escaping,
+// clipping, and the timing chain (phase-only time, line-count fallback).
+// Contract checks scan the installed pi/pi-ai packages for the thinking render
+// form and event types the timing depends on. Any failure exits 1.
 //
-// The scans read node_modules directly: the pi package's `exports` field
-// blocks deep module imports, but not file reads — and the harness must not
-// need a running pi.
+// The scans read node_modules directly: pi's `exports` field blocks deep
+// imports, not file reads, and the harness must not need a running pi.
 
 import { readFileSync, writeFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";

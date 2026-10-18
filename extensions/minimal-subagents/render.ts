@@ -62,7 +62,7 @@ export function formatUsageStats(
 	return parts.join(" ");
 }
 
-/** Terminal width for transcript lines — the render hooks get no width from the host. Falsy (0/undefined, e.g. mid-resize in CI) falls back like the host TUI does. */
+/** Terminal width for transcript lines; render hooks get no width from the host. Falls back to 80 on a falsy value. */
 function terminalColumns(): number {
 	return process.stdout.columns || 80;
 }
@@ -74,22 +74,16 @@ const BLOCK_INSET = 2;
 const ROW_INDENT = 2;
 
 /**
- * Width-aware truncation for possibly ANSI-styled text: `truncateToWidth`
- * measures display columns (CJK = 2, escapes = 0) and never slices an escape
- * sequence or grapheme cluster in half. Hand-assembled transcript lines must
- * go through this — never `String.slice`, which counts UTF-16 units and
- * overflows on CJK text or styled strings.
+ * Width-aware truncation for ANSI-styled text. `truncateToWidth` counts display
+ * columns and never splits an escape sequence or grapheme cluster; hand-built
+ * transcript lines must use it instead of `String.slice`.
  *
- * The ellipsis is post-processed: `truncateToWidth` wraps it in bare `\x1b[0m`
- * full resets, and those also clear the enclosing tool-block background —
- * everything after the truncation point (including the block's padding)
- * would lose its tint. Stripping them is not enough on its own: when the cut
- * lands inside a styled span, the span's scoped close (`\x1b[22m`/`\x1b[39m`)
- * is gone too, and `wrapTextWithAnsi` carries still-open SGR attributes across
- * `\n` onto the following scoreboard lines (a bold agent name would embolden
- * the task, blank and summary rows). So on real truncation we re-close fg
- * and bold with scoped resets — neither touches the block background — and
- * leave the ellipsis inheriting the color active at the cut.
+ * Its ellipsis comes wrapped in a bare `\x1b[0m`, which would clear the tool
+ * block's background. Stripping that reset is not enough when the cut lands
+ * inside a styled span: the span's scoped close is gone, and `wrapTextWithAnsi`
+ * carries open SGR attributes onto later rows. On real truncation, re-close fg
+ * and bold with scoped resets (`\x1b[22m\x1b[39m`), which leave the background
+ * alone.
  */
 function truncateVisual(text: string, maxCols: number): string {
 	const truncated = truncateToWidth(text, maxCols, "…").replaceAll("\x1b[0m", "");
@@ -293,16 +287,10 @@ function isQueued(r: SingleResult): boolean {
 }
 
 /**
- * The collapsed transcript block under the one-line call header
- * (`spawn_agents (N agents)`). Every agent is a 2-line block — glyph + name
- * + stats, then the first line of its task (the stable identifier, even
- * when names are opaque). Running agents grow a third line with the latest
- * tool call. Failed agents put the error on the header; tokens/cost live
- * only on the call-total summary (multi-agent, finished). The hint line is
- * running-only. Lines truncate to the block's real content width (terminal -
- * Box padding) so they never re-wrap into orphan rows, and a blank line
- * separates the summary/hint status rows from the per-agent rows above. The
- * panel (alt+a) is the live timeline; this stays a summary.
+ * Collapsed view under the one-line call header: per agent, a glyph + name +
+ * stats line, then the first task line; running agents add a latest-activity
+ * line. Failures put the error on the header. A blank line separates the
+ * running hint or finished totals from the agent rows.
  */
 function scoreboardView(details: SubagentDetails, theme: RenderTheme): Text {
 	const results = details.results;
@@ -367,10 +355,9 @@ export function renderSpawnResult(
 	const mdTheme = getMarkdownTheme();
 
 	if (expanded && !isAgentRunning(details)) {
-		// Expanded (ctrl+o, after completion): final outputs only — one block
-		// per agent with a quantified header and the answer rendered as
-		// markdown. The per-tool timeline is the panel's job (alt+a); the
-		// transcript archive does not duplicate it.
+		// Expanded (ctrl+o, after completion): one block per agent with a
+		// quantified header and the final output as Markdown. The panel (alt+a)
+		// owns the per-tool timeline, so the transcript does not repeat it.
 		const container = new Container();
 		details.results.forEach((r, i) => {
 			if (i > 0) container.addChild(new Spacer(1));

@@ -2,9 +2,9 @@
  * collapse-blocks — collapse tool rows and thinking blocks into one-line summaries
  *
  * pi draws every tool row and reasoning stream in full, so a working session
- * scrolls itself away. This extension collapses the display of the seven
- * tools it covers (bash, edit, write, read, grep, find, ls) and of thinking
- * blocks to one line, keeping one line of the error on failure:
+ * scrolls itself away. This extension replaces the seven tools it covers
+ * (bash, edit, write, read, grep, find, ls) and thinking blocks with one-line
+ * summaries:
  *
  *   $ npm test · ✓ 3.2s
  *   ✎ src/index.ts +12 −3
@@ -12,34 +12,20 @@
  *   $ cargo build · ✗ 18.4s
  *   error: could not compile `pi-tui`
  *
- * While a call runs, the row shows the command and the live last output line;
- * while thinking streams, the block shows its status line and the newest
- * line. A thinking status line shows the thinking phase's own time, measured
- * from thinking_start to thinking_end — or to the first text/tool-call event,
- * because openai-completions providers emit thinking_end only at the end of
- * the stream. It floors to whole seconds while streaming and is exact once
- * the phase closes; each run keeps its own phase. Timings live in memory
- * only, so blocks streamed by an earlier session of the extension fall back
- * to a line count.
+ * Running calls can add the latest output line; streaming thinking adds the
+ * newest line; failures add the last error line when present. `ctrl+o`
+ * expands every block, expanded rows delegate to pi's renderers, and clicking
+ * a tool row toggles that row in fullscreen mode. Thinking follows the same
+ * global flag; `/collapse-blocks` drives it when `ctrl+o` is rebound.
+ * Collapsed is the default; a restart resets it.
  *
- * Each slot is drawn in the stock status-colored box, so the whole block,
- * padding rows included, is one click target. `ctrl+o` (app.tools.expand)
- * toggles every row, and expanded rows delegate to pi's renderers. Clicking a
- * block toggles that block, in fullscreen mode only. Thinking expands with
- * the same `ctrl+o`: the renderers mirror pi's global flag and force thinking
- * to re-render when it flips. `/collapse-blocks` drives that flag for when
- * `ctrl+o` is rebound (tree view reuses it to cycle filters). Collapsed is
- * the default; a restart resets it.
- *
- * Per-tool summaries: bash shows command, status and duration; edit/write the
- * path with +/− line stats; read the path and line count; grep/find/ls the
- * query and hit count. Counts skip pi's "[Showing …]" notices, grep's "No
- * matches found", and status footers. Lines are clipped by character count,
- * so wide characters (CJK, emoji) can wrap an extra row.
+ * Result counts skip pi's notices and status footers. Lines are clipped by
+ * character count, so wide characters can wrap an extra row. Thinking time is
+ * the phase's own time (see "Thinking timing" below).
  *
  * Display-only: the session file and the model context are untouched.
- * Mutually exclusive with @pi-spice/thinking-preview, which rewrites thinking
- * through the same transformer slot; running both double-frames the block.
+ * Mutually exclusive with @pi-spice/thinking-preview: both transform
+ * assistant-thinking Markdown and pi chains the transformers.
  *
  * Install: pi install npm:@pi-spice/collapse-blocks
  * Quick test: pi -e ./extensions/collapse-blocks/
@@ -167,9 +153,9 @@ function hitLineCount(text: string): number {
 }
 
 /**
- * Content lines of a result. Notices ride on a trailing blank separator, so a
- * trailing notice drops itself and that blank; blank lines elsewhere count as
- * content, as do read's context lines.
+ * Returned content lines of a result. Notices ride on a trailing blank
+ * separator, so a trailing notice drops itself and that blank; blank lines
+ * elsewhere count as content, as do read's context lines.
  */
 function contentLineCount(text: string): number {
 	let lines = text.replace(/\n$/, "").split("\n");
@@ -320,12 +306,10 @@ let ui: ExtensionUIContext | undefined;
 let lastExpanded = false;
 
 /**
- * If pi's global expansion flag moved, re-render every thinking block.
- * Assistant message components are not expandable, so nothing else redraws
- * them when `ctrl+o` flips the flag; re-propagating the hidden-thinking
- * label forces each one through this transformer again. Observed from two
- * places — the tool renderers (which see the flag on every render) and a
- * terminal listener for the key itself, so tool-less sessions keep working.
+ * Re-render every thinking block when pi's global expansion flag changes.
+ * Message components are not expandable, so the hidden-thinking label is
+ * re-propagated to force them through the transformer. Called by the tool
+ * renderers and by a terminal listener, so tool-less sessions keep working.
  */
 function refreshThinking(): void {
 	const expanded = ui?.getToolsExpanded() ?? false;
@@ -351,10 +335,9 @@ interface ThinkingTiming {
 }
 
 /**
- * Run timings, keyed by a hash of the run's display text (the trim + "\n\n"
- * join pi renders). One record per run: the open run drops its previous key
- * as the text grows, so the table holds one record per closed run plus at
- * most one open record, and two runs collide only on identical text.
+ * Run timings keyed by a hash of the run's display text. The open run drops
+ * its previous key as the text grows, so the map holds one record per closed
+ * run plus at most one open record; only identical text collides.
  */
 const thinkingTimings = new Map<string, ThinkingTiming>();
 const TIMING_MAX_ENTRIES = 512;
@@ -410,12 +393,11 @@ function upsertTiming(key: string, timing: ThinkingTiming): void {
 }
 
 /**
- * Track the streaming thinking phase from the message events: opened at
- * thinking_start, re-keyed on every delta, closed at thinking_end or at the
- * first text/tool-call event (openai-completions providers emit thinking_end
- * only at the end of the stream). message_end closes a run that saw neither.
- * A delta without a start opens late. Consecutive blocks render as one run
- * and show the last block's phase.
+ * Track the streaming phase from message events: open at thinking_start,
+ * re-key on each delta, close at thinking_end or the first non-thinking
+ * event (openai-completions providers emit thinking_end only at stream end).
+ * message_end closes a run that saw neither; a delta without a start opens
+ * late. Consecutive blocks render as one run and show the last block's phase.
  */
 function onThinkingEvent(eventType: string | undefined, content: readonly MaybeThinking[]): void {
 	const now = Date.now();
@@ -477,9 +459,8 @@ function onAssistantMessageEnd(): void {
 }
 
 /**
- * The status line's meta: the phase's time when recorded — exact once closed,
- * whole seconds while streaming — and the line count when untimed (blocks
- * streamed by an earlier session of the extension).
+ * Status meta: phase time when recorded — exact when closed, whole seconds
+ * while streaming — else the line count.
  */
 function thinkingMeta(markdown: string, lineCount: number, isStreaming: boolean): string {
 	const timing = thinkingTimings.get(timingKey(markdown));
@@ -505,12 +486,10 @@ function clipLine(line: string, maxChars: number): string {
 }
 
 /**
- * The display of one thinking block, as Markdown: a single status line when
- * finished, the status line plus the newest line while streaming, and the
- * full escaped text when toggled open — all inside one `│ `-framed
- * blockquote, the same frame pi gives thinking. The status line's meta is
- * the thinking phase's time when known (see thinkingMeta), the line count
- * otherwise.
+ * One thinking block as Markdown: a status line when finished, status plus
+ * the newest line while streaming, and the full escaped text when expanded —
+ * all in a `│ `-framed blockquote. The status meta is the phase time when
+ * known, else the line count.
  */
 function thinkingMarkdown(markdown: string, isStreaming: boolean, availableWidth: number): string {
 	const text = markdown.trim();

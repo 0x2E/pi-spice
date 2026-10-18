@@ -2,4 +2,4 @@
 "@pi-spice/thinking-preview": minor
 ---
 
-The preview status line now shows how long the model thought — counting up live while it streams, exact once it ends — instead of a line count. Blocks without a measured time (e.g. after a restart) still show the line count.
+The preview status line now shows how long the model thought — counting up live while it streams, exact once it ends — instead of a line count. Blocks without a measured time (e.g. after a restart or session change) still show the line count.

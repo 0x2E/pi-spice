@@ -30,8 +30,9 @@ export interface SingleResult {
 	task: string;
 	/** -1 while the agent is still running */
 	exitCode: number;
-	/** Wall-clock timestamps: call time to agent end (unset while running). */
+	/** Unix ms at agent start. */
 	startedAt: number;
+	/** Unix ms at agent end; undefined while running. */
 	endedAt?: number;
 	messages: Message[];
 	stderr: string;
@@ -74,8 +75,8 @@ export function getFinalOutput(messages: Message[]): string {
 }
 
 export function isFailedResult(result: SingleResult): boolean {
-	// exitCode -1 means still running; a real non-zero exit (or an error/abort
-	// stop reason) is the failure signal.
+	// exitCode -1 means still running; a positive exit code or an error/abort
+	// stop reason is the failure signal.
 	return result.exitCode > 0 || result.stopReason === "error" || result.stopReason === "aborted";
 }
 
