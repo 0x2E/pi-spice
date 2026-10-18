@@ -1,25 +1,18 @@
 /**
  * panel.ts — sub-agent details panel (overlay) for minimal-subagents
  *
- * Opened with alt+a (registered in index.ts), closed with alt+a or Esc —
- * while the panel is focused the host routes all input here, so the open
- * shortcut never fires; the panel must recognize alt+a itself to toggle.
- * With no spawn_agents data yet, the shortcut shows a notify message
- * instead of opening an empty overlay (guarded in index.ts via
- * hasPanelDetails).
- * Shows the latest spawn_agents call: one tab per sub-agent, a full scrollable
- * timeline per tab (task, tool calls, tool-result previews, assistant output
- * rendered as markdown, usage), live-updating while agents run.
+ * alt+a (registered in index.ts) opens the panel; with no data yet, index.ts
+ * shows a notify instead. While the panel has focus the host routes all input
+ * here, so the open shortcut cannot fire — the panel recognizes alt+a itself
+ * to toggle, and Esc closes it. It shows the latest spawn_agents call: one tab
+ * per sub-agent with a scrollable timeline (task, tool calls, tool-result
+ * previews, markdown output, usage), live-updating while agents run.
  *
  * Rendering is line-based: the timeline is flattened into styled lines and
- * windowed by a hand-rolled viewport (offset math) — the overlay contract is
- * `render(width) => string[]`, so we control exactly which slice is visible.
- * Mouse wheel is parsed directly from SGR sequences reaching handleInput
- * while the overlay is focused. All other keys are matched via matchesKey
- * (protocol-independent): pi negotiates the kitty keyboard protocol at
- * startup, and under it Esc/arrows arrive as CSI-u sequences that a raw
- * byte-sequence switch would never match — keys must not be compared to
- * `"\x1b[C"`-style literals.
+ * windowed by a hand-rolled viewport, because the overlay contract is
+ * `render(width) => string[]`. Mouse wheel is parsed from SGR sequences; every
+ * other key goes through matchesKey, which covers the kitty CSI-u encoding
+ * that pi negotiates at startup (raw `"\x1b[C"` literals would not).
  */
 
 import { Markdown, matchesKey, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";

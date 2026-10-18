@@ -1,18 +1,19 @@
 /**
- * minimal-subagents — spawn dynamically created sub-agents, in parallel
+ * minimal-subagents — create sub-agents dynamically and run them in parallel
+ * through one blocking tool, with no orchestration or nesting
  *
- * Fork of the official pi example extension `examples/extensions/subagent`
+ * Adapted from pi's official example extension `examples/extensions/subagent`
  * (pi v0.84.4, MIT License, https://github.com/earendil-works/pi), reshaped:
  * agents are defined inline per invocation (no predefined .md files), there is
- * a single `{ agents: [spec...] }` mode (no chain/orchestration), and nesting
- * is prevented via an environment sentinel. The parent blocks until every
- * sub-agent finished; each spec can pick its own model, thinking level and
+ * one `{ agents: [spec...] }` mode, and nesting is blocked by an environment
+ * sentinel plus `--exclude-tools spawn_agents`. The parent blocks until every
+ * sub-agent finishes; each spec can pick its own model, thinking level and
  * tool allowlist, inheriting the parent session's model/thinking by default.
  *
- * Process spawning lives in spawn.ts, TUI rendering in render.ts.
+ * Process spawning lives in spawn.ts; TUI rendering in render.ts and panel.ts.
  *
  * Install: pi install npm:@pi-spice/minimal-subagents
- * Quick test: pi -e ./extensions/minimal-subagents
+ * Quick test: pi -e ./extensions/minimal-subagents/
  */
 
 import { StringEnum } from "@earendil-works/pi-ai";

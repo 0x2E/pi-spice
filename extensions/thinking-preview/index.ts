@@ -3,33 +3,26 @@
  *
  * pi streams reasoning tokens in full, which floods the transcript on long
  * thinking turns. This extension rewrites the display of every thinking block
- * through a Markdown transformer into a three-line preview:
+ * through a Markdown transformer: a status line plus up to two tail lines,
+ * inside a blockquote that keeps pi's `│ ` bar and quote color.
  *
  *   ✻ thinking · 8.4s · alt+t to expand
- *   <second-to-last line of thinking>
- *   <last line of thinking>
+ *   <second-to-last line>
+ *   <last line>
  *
- * The block is a blockquote, so it keeps pi's `│ ` bar and quote color.
- * Content is plain text: Markdown syntax is escaped and lines are clipped to
- * the available width by character count, so wide characters can wrap an
- * extra row.
- *
- * The status line shows the thinking phase's own time, measured from
- * thinking_start to thinking_end — or to the first text/tool-call event,
- * because openai-completions providers emit thinking_end only at the end of
- * the stream. It floors to whole seconds while streaming and is exact once
- * the phase closes; each run keeps its own phase. Timings live in memory
- * only, so blocks streamed by an earlier session of the extension fall back
- * to a line count.
+ * Content is plain text: Markdown syntax is escaped and lines are clipped by
+ * character count, so wide characters can wrap an extra row. Thinking time is
+ * measured per phase (see "Thinking timing" below).
  *
  * `alt+t` (or /thinking-preview) toggles all thinking blocks between preview
- * and full text; the toggle is global and resets on restart. pi's ctrl+t
- * (hide thinking) takes precedence: hidden blocks render as a label and this
- * extension has no visible effect until thinking is shown again.
+ * and full text. The flag is global, not saved, and resets with the process
+ * or `/reload`. pi's ctrl+t (hide thinking) takes precedence; hidden blocks
+ * render as a label and this extension has no visible effect until thinking
+ * is shown.
  *
  * Display-only: the session file and the model context keep the full text.
- * Mutually exclusive with @pi-spice/collapse-blocks, which rewrites thinking
- * through the same transformer slot.
+ * Mutually exclusive with @pi-spice/collapse-blocks: both transform
+ * assistant-thinking Markdown and pi chains the transformers.
  *
  * Install: pi install npm:@pi-spice/thinking-preview
  * Quick test: pi -e ./extensions/thinking-preview/
@@ -46,7 +39,7 @@ const TOGGLE_KEY = "alt+t";
 /** Columns consumed by the blockquote left bar (`│ `) framing each line. */
 const QUOTE_BAR_WIDTH = 2;
 
-/** Sticky preview/full-text switch. Resets to preview on restart. */
+/** Sticky preview/full-text switch. Not saved: a new process or `/reload` starts in preview. */
 let expanded = false;
 
 /**
@@ -98,10 +91,9 @@ interface ThinkingTiming {
 }
 
 /**
- * Run timings, keyed by a hash of the run's display text (the trim + "\n\n"
- * join pi renders). One record per run: the open run drops its previous key
- * as the text grows, so the table holds one record per closed run plus at
- * most one open record, and two runs collide only on identical text.
+ * Run timings keyed by a hash of the run's display text. The open run drops
+ * its previous key as the text grows, so the map holds one record per closed
+ * run plus at most one open record; only identical text collides.
  */
 const thinkingTimings = new Map<string, ThinkingTiming>();
 const TIMING_MAX_ENTRIES = 512;
@@ -157,12 +149,11 @@ function upsertTiming(key: string, timing: ThinkingTiming): void {
 }
 
 /**
- * Track the streaming thinking phase from the message events: opened at
- * thinking_start, re-keyed on every delta, closed at thinking_end or at the
- * first text/tool-call event (openai-completions providers emit thinking_end
- * only at the end of the stream). message_end closes a run that saw neither.
- * A delta without a start opens late. Consecutive blocks render as one run
- * and show the last block's phase.
+ * Track the streaming phase from message events: open at thinking_start,
+ * re-key on each delta, close at thinking_end or the first non-thinking
+ * event (openai-completions providers emit thinking_end only at stream end).
+ * message_end closes a run that saw neither; a delta without a start opens
+ * late. Consecutive blocks render as one run and show the last block's phase.
  */
 function onThinkingEvent(eventType: string | undefined, content: readonly MaybeThinking[]): void {
 	const now = Date.now();
@@ -248,9 +239,8 @@ function streamingDuration(ms: number): string {
 }
 
 /**
- * The status line's meta: the phase's time when recorded — exact once closed,
- * whole seconds while streaming — and the line count when untimed (blocks
- * streamed by an earlier session of the extension).
+ * Status meta: phase time when recorded — exact when closed, whole seconds
+ * while streaming — else the line count.
  */
 function thinkingMeta(markdown: string, lineCount: number, isStreaming: boolean): string {
 	const timing = thinkingTimings.get(timingKey(markdown));
@@ -281,11 +271,10 @@ export default function (pi: ExtensionAPI) {
 		const text = markdown.trim();
 		if (!text) return markdown;
 
-		// Simple by design: fall back to counting lines when the phase time is
-		// unknown; otherwise the status line carries the time (see
-		// thinkingMeta). The last two non-empty lines preview the stream, each
-		// clipped to the terminal width by plain character count — no
-		// per-charset width math, so wide characters may wrap an extra row.
+		// Simple by design: the status line carries the phase time when known,
+		// otherwise the line count. The last two non-empty lines preview the
+		// stream; each is clipped by character count, so wide characters may
+		// wrap an extra row.
 		const lines = text.split("\n");
 		const action = expanded ? "to collapse" : "to expand";
 		const meta = thinkingMeta(markdown, lines.length, isStreaming);
