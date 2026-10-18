@@ -1,6 +1,6 @@
 # @pi-spice/thinking-preview
 
-Collapse streaming thinking blocks into a compact live preview; `alt+t` toggles full text.
+Collapse streaming thinking blocks into a compact live preview.
 
 pi streams reasoning tokens in full, which floods the transcript on long thinking turns. This extension turns each thinking block into a status line plus up to two tail lines:
 

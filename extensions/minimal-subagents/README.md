@@ -1,6 +1,6 @@
 # @pi-spice/minimal-subagents
 
-Create sub-agents dynamically and run them in parallel through one blocking tool, with no orchestration or nesting.
+Create sub-agents dynamically and run them in parallel.
 
 `spawn_agents({ agents: [spec...] })` takes an inline spec per agent — a single task is an array of one — runs up to eight per call (four at a time), and returns when all finish. Each sub-agent is an isolated `pi` process with its own context window. The child-process code is adapted from pi's official subagent example.
 

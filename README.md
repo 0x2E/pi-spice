@@ -16,8 +16,8 @@ Small, self-contained, zero-dependency extensions for [pi](https://github.com/ea
 | Extension | Core capability |
 | --- | --- |
 | [prefer-modern-cli](./extensions/prefer-modern-cli) | Prefer modern CLI tools such as `rg` and `fd` |
-| [thinking-preview](./extensions/thinking-preview) | Collapse streaming thinking blocks into a compact live preview; `alt+t` toggles full text |
-| [minimal-subagents](./extensions/minimal-subagents) | Create sub-agents dynamically and run them in parallel through one blocking tool, with no orchestration or nesting |
+| [thinking-preview](./extensions/thinking-preview) | Collapse streaming thinking blocks into a compact live preview |
+| [minimal-subagents](./extensions/minimal-subagents) | Create sub-agents dynamically and run them in parallel |
 | [collapse-blocks](./extensions/collapse-blocks) | Collapse tool rows and thinking blocks into one-line summaries |
 
 ## License

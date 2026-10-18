@@ -1,5 +1,5 @@
 /**
- * prefer-modern-cli — prefer modern CLI tools such as `rg` and `fd` in bash commands
+ * prefer-modern-cli — prefer modern CLI tools such as `rg` and `fd`
  *
  * Probes each tool (managed `~/.pi/agent/bin`, then PATH) once per extension
  * instance. When bash is active, each available tool adds one preference line

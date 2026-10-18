@@ -1,6 +1,5 @@
 /**
  * minimal-subagents — create sub-agents dynamically and run them in parallel
- * through one blocking tool, with no orchestration or nesting
  *
  * Adapted from pi's official example extension `examples/extensions/subagent`
  * (pi v0.84.4, MIT License, https://github.com/earendil-works/pi), reshaped:

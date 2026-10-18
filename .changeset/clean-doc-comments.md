@@ -5,4 +5,4 @@
 "@pi-spice/thinking-preview": patch
 ---
 
-Documentation and comment cleanup; no behavior change.
+Documentation and comment cleanup, including shorter package descriptions. No behavior change.
