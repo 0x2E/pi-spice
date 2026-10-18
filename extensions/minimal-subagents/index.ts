@@ -3,11 +3,15 @@
  *
  * Adapted from pi's official example extension `examples/extensions/subagent`
  * (pi v0.84.4, MIT License, https://github.com/earendil-works/pi), reshaped:
- * agents are defined inline per invocation (no predefined .md files), there is
- * one `{ agents: [spec...] }` mode, and nesting is blocked by an environment
- * sentinel plus `--exclude-tools spawn_agents`. The parent blocks until every
- * sub-agent finishes; each spec can pick its own model, thinking level and
- * tool allowlist, inheriting the parent session's model/thinking by default.
+ * the agent is defined inline per invocation (no predefined .md files) and the
+ * tool takes one flat spec, so parallel work is several calls in one assistant
+ * message — pi already runs those concurrently — instead of a wrapper array.
+ * Each spec can pick its own model, thinking level and tool allowlist; omitted
+ * fields inherit the parent session's. The call blocks until the agent
+ * finishes. Nesting is blocked by an environment sentinel plus
+ * `--exclude-tools spawn_agents`; the child-process concurrency limit is shared
+ * across calls (spawn.ts), and the alt+a panel accumulates every agent this
+ * session (panel.ts).
  *
  * Process spawning lives in spawn.ts; TUI rendering in render.ts and panel.ts.
  *
@@ -18,59 +22,60 @@
 import { StringEnum } from "@earendil-works/pi-ai";
 import { type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import {
-	getResultOutput,
-	isFailedResult,
-	mapWithConcurrencyLimit,
-	runSpec,
-	truncateParallelOutput,
-	type SingleResult,
-	type SubagentDetails,
-} from "./spawn.ts";
+import { failureStatus, getResultOutput, isFailedResult, runSpec, truncateOutput, type SingleResult } from "./spawn.ts";
 import { renderSpawnCall, renderSpawnResult } from "./render.ts";
-import { hasPanelDetails, openAgentPanel, setPanelDetails } from "./panel.ts";
-
-const MAX_AGENTS = 8;
-const MAX_CONCURRENCY = 4;
+import { hasAgents, openAgentPanel, upsertAgent } from "./panel.ts";
 
 const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 
-const AgentSpecSchema = Type.Object({
+const SpawnAgentParams = Type.Object({
 	name: Type.Optional(
 		Type.String({
 			description:
-				'Heading for this agent result section ("### [name]"). Prefer a short role name like "scout" over agent-1.',
+				'Short role label used as the result heading ("### [scout]"). Default: agent-1, agent-2, … per session.',
 		}),
 	),
 	systemPrompt: Type.Optional(
 		Type.String({
 			description:
-				"Role, constraints and output-format rules for this agent (appended to the child's system prompt). Put standing instructions here, not the assignment.",
+				"Standing rules appended to the agent's system prompt — role, constraints, output format. Put the assignment in task.",
 		}),
 	),
-	task: Type.String({ minLength: 1, description: "The concrete assignment this agent must complete" }),
+	task: Type.String({
+		minLength: 1,
+		description:
+			'What the agent must accomplish. It cannot see this conversation: give the goal, the paths, what you ruled out, and the output you want back ("report in under 200 words").',
+	}),
 	model: Type.Optional(
-		Type.String({ description: 'Model for this agent, e.g. "anthropic/claude-haiku-4-5". Default: inherit parent session model' }),
+		Type.String({
+			description:
+				'Model as "provider/model-id", e.g. "anthropic/claude-haiku-4-5". Omit to inherit the parent session\'s model.',
+		}),
 	),
 	thinking: Type.Optional(
 		StringEnum(THINKING_LEVELS, {
-			description: "Reasoning effort for this agent. Default: inherit parent session thinking level",
+			description: "Reasoning effort. Omit to inherit the parent session's level.",
 		}),
 	),
 	tools: Type.Optional(
 		Type.Array(Type.String(), {
-			description: 'Tool allowlist for this agent, e.g. ["read","grep","find","ls"]. Default: child default tools',
+			description:
+				'Tool names to allow, e.g. ["read","grep","find","ls"] for a read-only scout. Omit for the child\'s configured tool set — grep, find and ls are opt-in.',
 		}),
 	),
 });
 
-const SpawnAgentsParams = Type.Object({
-	agents: Type.Array(AgentSpecSchema, {
-		minItems: 1,
-		maxItems: MAX_AGENTS,
-		description: `Agents to create and run (1-${MAX_AGENTS}; at most ${MAX_CONCURRENCY} run at a time). A single task is an array of one. Blocks until every agent finishes.`,
-	}),
-});
+/** Headings and panel tabs are keyed by name, so every call claims a distinct one. */
+let agentSeq = 0;
+const usedNames = new Set<string>();
+
+function claimName(preferred?: string): string {
+	const base = preferred?.trim() || `agent-${++agentSeq}`;
+	let name = base;
+	for (let suffix = 2; usedNames.has(name); suffix++) name = `${base}-${suffix}`;
+	usedNames.add(name);
+	return name;
+}
 
 export default function (pi: ExtensionAPI) {
 	// Nesting guard: sub-agent processes run with PI_SUBAGENTS_CHILD=1 (set in
@@ -81,128 +86,75 @@ export default function (pi: ExtensionAPI) {
 
 	pi.registerTool({
 		name: "spawn_agents",
-		label: "Spawn agents",
+		label: "Spawn agent",
 		description: [
-			"Create sub-agents dynamically and run them in parallel, each in an isolated pi process.",
-			"Each agent is defined inline: systemPrompt (role/constraints) + task (assignment), with optional model, thinking level and tool allowlist; unset fields inherit the parent session.",
-			"Blocks until all agents finish, then returns each agent's final output under ### [name] headings.",
-			"The parent's working directory and project context (AGENTS.md) are shared; agents cannot spawn further sub-agents.",
+			"Run an agent in an isolated pi process with its own context window; it starts with no knowledge of this conversation.",
+			"The call blocks until the agent finishes, then returns its final message under a ### [name] heading.",
+			"To run agents in parallel, issue one call per agent in the same message.",
 		].join(" "),
 		promptGuidelines: [
-			"spawn_agents returns only each agent's final text under ### [name] headings; agents' intermediate steps stay hidden, so ask agents to put key findings in their final answer.",
-			"spawn_agents agents run isolated from each other; one failing does not stop the others, and the tool result reports every agent's status.",
+			"Use spawn_agents for an open-ended, multi-step question worth its own context window; use read, grep or find for a known file or symbol.",
+			"Write each task as a self-contained brief — goal, paths, what you already ruled out, the output you want back. The agent cannot ask questions, so a terse command-style task produces shallow work.",
+			"Launch parallel work as several spawn_agents calls in one message, and keep those tasks file-disjoint: agents share this working directory.",
+			"spawn_agents returns the agent's final message only, and results come back to you rather than to the user — summarize what matters in your reply.",
 		],
-		parameters: SpawnAgentsParams,
+		parameters: SpawnAgentParams,
 
-		async execute(_toolCallId, params, signal, onUpdate, ctx) {
-			if (params.agents.length > MAX_AGENTS) {
-				return {
-					content: [{ type: "text", text: `Too many agents (${params.agents.length}). Max is ${MAX_AGENTS}.` }],
-					details: { results: [] },
-				};
-			}
-
+		async execute(toolCallId, params, signal, onUpdate, ctx) {
+			const name = claimName(params.name);
 			const dispatchDefaults = {
 				model: ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined,
 				thinkingLevel: ctx.thinkingLevel,
 			};
 
-			const makeDetails = (results: SingleResult[]): SubagentDetails => ({ results });
-
-			// Track all results for streaming updates
-			const allResults: SingleResult[] = new Array(params.agents.length);
-
-			// Initialize placeholder results
-			for (let i = 0; i < params.agents.length; i++) {
-				allResults[i] = {
-					name: params.agents[i].name ?? `agent-${i + 1}`,
-					task: params.agents[i].task,
-					exitCode: -1, // -1 = still running
-					startedAt: Date.now(),
-					messages: [],
-					stderr: "",
-					usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
-				};
-			}
-
-			const emitParallelUpdate = () => {
-				setPanelDetails(makeDetails([...allResults]));
-				if (onUpdate) {
-					const running = allResults.filter((r) => r.exitCode === -1).length;
-					const done = allResults.filter((r) => r.exitCode !== -1).length;
-					onUpdate({
-						content: [
-							{ type: "text", text: `Running: ${done}/${allResults.length} done, ${running} running...` },
-						],
-						details: makeDetails([...allResults]),
-					});
-				}
+			// Placeholder until the child reports: the panel and the tool row show
+			// "queued" (then "running") the moment the call starts, instead of "no
+			// data" while a child waits for a slot or takes seconds to boot.
+			let current: SingleResult = {
+				name,
+				task: params.task,
+				phase: "queued", // waiting for a child slot; render.ts and the panel say so
+				exitCode: -1,
+				startedAt: Date.now(),
+				messages: [],
+				stderr: "",
+				usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
 			};
+			const publish = () => {
+				upsertAgent(toolCallId, current);
+				onUpdate?.({ content: [{ type: "text", text: current.phase === "queued" ? "queued…" : "running…" }], details: current });
+			};
+			publish();
 
-			// Seed the panel the moment the tool starts: alt+a can then open it and
-			// show "running" placeholders. Without this, the panel would stay
-			// "no data" until the first child event arrives — child boot plus the
-			// child's first model turn can take 5-20s, and interrupting (or just
-			// peeking) inside that window would claim there is nothing to show.
-			emitParallelUpdate();
+			try {
+				current = await runSpec(ctx.cwd, dispatchDefaults, params, name, signal, (partial) => {
+					if (partial.details) {
+						current = partial.details;
+						publish();
+					}
+				});
+			} catch (err) {
+				// An abort keeps whatever the child produced, marked as such, rather
+				// than discarding finished work behind a thrown tool error.
+				if (!signal?.aborted) throw err;
+				current = { ...current, phase: "finished", exitCode: 1, stopReason: "aborted", endedAt: Date.now() };
+			}
+			publish();
 
-			const results = await mapWithConcurrencyLimit(params.agents, MAX_CONCURRENCY, async (spec, index) => {
-				// On abort, return what exists instead of throwing finished work away.
-				const abortPlaceholder = (): SingleResult => {
-					const partial = allResults[index];
-					partial.exitCode = 1;
-					partial.stopReason = "aborted";
-					partial.endedAt = Date.now();
-					return partial;
-				};
-				if (signal?.aborted) return abortPlaceholder();
-				try {
-					const result = await runSpec(
-						ctx.cwd,
-						dispatchDefaults,
-						spec,
-						allResults[index].name,
-						signal,
-						(partial) => {
-							if (partial.details?.results[0]) {
-								allResults[index] = partial.details.results[0];
-								emitParallelUpdate();
-							}
-						},
-						makeDetails,
-					);
-					allResults[index] = result;
-					emitParallelUpdate();
-					return result;
-				} catch (err) {
-					if (signal?.aborted) return abortPlaceholder();
-					throw err;
-				}
-			});
-
-			const successCount = results.filter((r) => !isFailedResult(r)).length;
-			const aborted = signal?.aborted === true;
-			setPanelDetails(makeDetails(results));
-			const summaries = results.map((r) => {
-				const output = truncateParallelOutput(getResultOutput(r));
-				const status = isFailedResult(r)
-					? `failed${r.stopReason && r.stopReason !== "end" ? ` (${r.stopReason})` : ""}`
-					: "completed";
-				const usage =
-					r.usage.turns > 0 || r.usage.cost > 0
-						? `\n\n(${r.usage.turns} turns, $${r.usage.cost.toFixed(4)})`
-						: "";
-				return `### [${r.name}] ${status}\n\n${output}${usage}`;
-			});
+			const status = failureStatus(current);
+			const usage =
+				current.usage.turns > 0 || current.usage.cost > 0
+					? `\n\n(${current.usage.turns} turns, $${current.usage.cost.toFixed(4)})`
+					: "";
 			return {
 				content: [
 					{
 						type: "text",
-						text: `${successCount}/${results.length} succeeded${aborted ? " before abort" : ""}\n\n${summaries.join("\n\n---\n\n")}`,
+						text: `### [${current.name}] ${status}\n\n${truncateOutput(getResultOutput(current))}${usage}`,
 					},
 				],
-				details: makeDetails(results),
-				isError: successCount === 0,
+				details: current,
+				isError: isFailedResult(current),
 			};
 		},
 
@@ -215,7 +167,7 @@ export default function (pi: ExtensionAPI) {
 		handler: (ctx) => {
 			// No run yet → pi's notify message, not an empty overlay stuck in the
 			// corner.
-			if (!hasPanelDetails()) {
+			if (!hasAgents()) {
 				ctx.ui.notify("No sub-agent data yet — run spawn_agents first", "info");
 				return;
 			}
