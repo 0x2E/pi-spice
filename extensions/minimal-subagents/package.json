@@ -1,6 +1,6 @@
 {
   "name": "@pi-spice/minimal-subagents",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Create sub-agents dynamically and run them in parallel",
   "keywords": ["pi-package"],
   "license": "MIT",

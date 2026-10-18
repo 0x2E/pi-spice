@@ -1,6 +1,6 @@
 {
   "name": "@pi-spice/prefer-modern-cli",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Prefer modern CLI tools such as rg and fd",
   "keywords": ["pi-package"],
   "license": "MIT",
