@@ -2,7 +2,7 @@
 //
 // Loads the extension with type-only imports stripped, pi-tui's real Box and
 // matchesKey injected, and a marker theme, then drives the renderers and the
-// thinking transformer through the shapes pi 1.2.0 actually produces:
+// thinking transformer through the shapes pi actually produces:
 // framing geometry, real arg shapes (path / edits[]), result-text notices,
 // the expansion chain (live flag, command, renderer observer, key tap), the
 // thinking timing chain (thinking_start/delta/end events, phase-only
@@ -109,7 +109,7 @@ const rows = (comp: Renderable, w = 100) => comp.render(w).map((l) => l.replace(
 	check("error row = 4 bg rows", err.length === 4 && err.every((l) => l.includes("{toolErrorBg}")));
 }
 
-// ---- 2. real arg shapes and result-text handling (pi 1.2.0) ----
+// ---- 2. real arg shapes and result-text handling ----
 {
 	const line = (tool: string, text: string, args: Record<string, unknown>, extra: Record<string, unknown> = {}) =>
 		rows(resolve(tool, stubBase()).renderResult(result(text), { expanded: false, isPartial: false }, theme, ctx({ args, ...extra })));

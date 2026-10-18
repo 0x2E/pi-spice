@@ -2,7 +2,7 @@
 
 Collapse streaming thinking blocks into a compact, live-refreshing preview.
 
-pi streams reasoning tokens in full, which can flood the transcript on long thinking turns. This extension turns every thinking block into a compact preview instead:
+pi streams reasoning tokens in full, which floods the transcript on long thinking turns. This extension turns each thinking block into a three-line preview:
 
 ```
 │ ✻ thinking · 8.4s · alt+t to expand
@@ -10,9 +10,7 @@ pi streams reasoning tokens in full, which can flood the transcript on long thin
 │ …last line of the thinking…
 ```
 
-The block renders as a blockquote, so it carries pi's `│ ` left bar and quote color — visually distinct from plain thinking text, echoing the framed look of tool-call rows (an exact `edit`/`bash`-style background box isn't reachable from a Markdown transformer).
-
-The preview refreshes on every streaming token, so the block doubles as a progress indicator — no flooding, but you always roughly know where the model is. The status line shows the thinking phase's own time: counted in whole seconds (floored, so the number never steps backward) while it streams, switching to the exact length once the phase closes — the text the response goes on to generate never counts. Blocks without a measured time (streamed before this session of the extension, or after a restart) fall back to a line count.
+The block is a blockquote, so it keeps pi's `│ ` left bar and quote color.
 
 ## Install
 
@@ -22,22 +20,25 @@ pi install npm:@pi-spice/thinking-preview
 
 Quick test without installing: `pi -e ./extensions/thinking-preview/`
 
-## How it works
+## What you see
 
-- Uses a Markdown transformer (`pi.registerMarkdownTransformer`), which is **display-only**: the session file and the model context keep the full thinking text, untouched.
-- The time is the phase itself (`thinking_start` through `thinking_end`, or the first text/tool-call event — openai-completions-style providers only signal `thinking_end` after the whole stream), held in memory only — the session file stays untouched, so restarted or restored sessions fall back to a line count. Each of a response's thinking runs keeps its own phase; consecutive blocks rendered as one show the last block's phase.
-- Preview content is plain text — Markdown syntax characters are escaped and rendered verbatim — and every preview line (status line included) is hard-clipped to the available terminal width minus the `│ ` bar, by plain character count with no per-charset width tables. A line of wide characters (CJK, emoji) can therefore render up to twice the budget and wrap an occasional extra row — accepted jitter in exchange for simplicity.
-- `alt+t` (or `/thinking-preview`) toggles **all** thinking blocks between preview and full text. Expanded mode shows the full text as escaped plain text inside the same `│ `-framed block, with source line breaks preserved; long lines wrap naturally. Toggling re-renders history immediately and shows a notification. Restart resets to the collapsed preview default.
-- The toggle is global and sticky: once expanded, new thinking blocks render in full until you toggle back.
+- **Thinking time.** The status line shows how long the model thought in that run: whole seconds while it streams, the exact length once it stops. Time spent writing the answer does not count.
+- **Live tail.** The two newest lines refresh on every token, so the block works as a progress indicator.
+- **Line count fallback.** Blocks with no recorded time — after a restart or `/reload` — show a line count instead.
+- **Plain text.** Markdown syntax is escaped, and lines are clipped to the terminal width by character count, so text in wide characters (CJK, emoji) can wrap an extra row.
 
-## Interaction with pi's built-in thinking controls
+## Expanding
 
-- `ctrl+t` (hide thinking blocks) takes precedence: while thinking is hidden, blocks render as a one-line label and this extension has no visible effect on the transcript — though the `alt+t` notification still fires. Press `ctrl+t` to make thinking visible again.
-- `ctrl+t` *showing* thinking also goes through this extension, so it shows the preview — not full text. Use `alt+t` for full text.
-- Toggling re-applies the default hidden-thinking label (`Thinking...`); if you customized that label elsewhere, it will be reset on toggle.
+`alt+t` (or `/thinking-preview`) toggles **all** thinking blocks between preview and full text. Expanded blocks show the whole text in the same `│ `-framed block, with source line breaks preserved. The setting is global, re-renders history immediately, and resets on restart; a restored session starts collapsed.
+
+## pi's built-in thinking controls
+
+- `ctrl+t` (hide thinking blocks) takes precedence: while thinking is hidden, this extension has no visible effect, though `alt+t` still shows its notification.
+- `ctrl+t` *showing* thinking renders the preview, not full text. Use `alt+t` for full text.
+- Toggling re-applies the default hidden-thinking label (`Thinking...`); a custom label set elsewhere is reset.
 
 ## Notes
 
-- Mutually exclusive with [@pi-spice/collapse-blocks](../collapse-blocks/), which also collapses thinking (plus tool rows) through the same transformer slot — install one or the other; running both double-frames thinking blocks.
-- Old thinking blocks pick up a mode change immediately (the toggle forces a re-render), and restored sessions render collapsed previews too.
-- `alt+t` was chosen because every `ctrl+letter` combination is bound in pi's default keybindings. If you have `alt+t` bound to something else, `/thinking-preview` works as a fallback.
+- Display-only: the session file and the model context keep the full thinking text.
+- If `alt+t` is already bound in your keybindings, `/thinking-preview` does the same thing.
+- Mutually exclusive with [@pi-spice/collapse-blocks](../collapse-blocks/), which also collapses thinking through the same transformer slot. Running both double-frames thinking blocks.
