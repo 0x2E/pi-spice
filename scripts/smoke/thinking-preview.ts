@@ -97,17 +97,27 @@ const md = (t: string, s = false, w = 80) => tf(t, { messageType: "assistant-thi
 
 	check("untimed falls back to line count", md("beta\ntwo", false).split("\n")[0].includes("· 2 lines"));
 
-	// Phase opened 8.4s ago and still streaming: whole seconds, counted up live.
+	// Phase opened 8.4s ago and still streaming: whole seconds, floored — the
+	// close below must never step the number backward.
 	fire("message_update", "thinking_start", think(""), 8400);
 	fire("message_update", "thinking_delta", think("alpha thinking"), 8400);
 	const live = md("alpha thinking", true).split("\n")[0];
-	check("streaming shows live whole seconds", live.includes("· 9s"), live);
+	check("streaming floors to whole seconds", live.includes("· 8s"), live);
 
 	// The phase closed 5.9s ago while the response went on generating text:
 	// the shown time is the phase (8.4 − 5.9 = 2.5s), never the response.
 	fire("message_update", "thinking_end", think("alpha thinking"), 5900);
 	const done = md("alpha thinking", false).split("\n")[0];
 	check("closed run shows the phase time only", done.includes("· 2.5s"), done);
+
+	// Closing at the instant the live value was read never steps backward:
+	// the live counter floors, the closed value is exact.
+	fire("message_update", "thinking_start", think(""), 8400);
+	fire("message_update", "thinking_delta", think("monotonic check"), 8400);
+	const liveStep = md("monotonic check", true).split("\n")[0];
+	fire("message_update", "thinking_end", think("monotonic check"), 0);
+	const closedStep = md("monotonic check", false).split("\n")[0];
+	check("live floors, closed is exact", liveStep.includes("· 8s") && closedStep.includes("· 8.4s"), `${liveStep} | ${closedStep}`);
 
 	// Regression (openai-completions providers): thinking_end fires only after
 	// the whole stream, so the first text event must close the phase — the
@@ -126,6 +136,42 @@ const md = (t: string, s = false, w = 80) => tf(t, { messageType: "assistant-thi
 	fire("message_update", "thinking_delta", think("aborted mid-thought"), 7000);
 	fire("message_end", undefined, think("aborted mid-thought"), 1200);
 	check("abort closes at response end", md("aborted mid-thought", false).split("\n")[0].includes("· 5.8s"), md("aborted mid-thought", false));
+
+	// Two runs whose thinking text opens identically must keep their own times:
+	// the record is keyed by the whole text, not a shared prefix.
+	const shared = "The user wants me to fix the failing smoke test in collapse-blocks. I'll read the harness.";
+	fire("message_update", "thinking_start", think(""), 20000);
+	fire("message_update", "thinking_delta", think(`${shared} First body.`), 20000);
+	fire("message_update", "thinking_end", think(`${shared} First body.`), 11600);
+	fire("message_update", "thinking_start", think(""), 4000);
+	fire("message_update", "thinking_delta", think(`${shared} Second body.`), 4000);
+	fire("message_update", "thinking_end", think(`${shared} Second body.`), 1000);
+	check("shared opening: first run keeps its time", md(`${shared} First body.`, false).includes("· 8.4s"), md(`${shared} First body.`, false));
+	check("shared opening: second run keeps its own", md(`${shared} Second body.`, false).includes("· 3.0s"), md(`${shared} Second body.`, false));
+
+	// A stray reasoning chunk after the phase closed (openai-completions emits
+	// reasoning per chunk with no latch) must not reopen or zero the time.
+	fire("message_update", "thinking_start", think(""), 9000);
+	fire("message_update", "thinking_delta", think("mixed provider stream"), 9000);
+	fire("message_update", "text_delta", [...think("mixed provider stream"), { type: "text", text: "Answer" }], 5000);
+	fire("message_update", "thinking_delta", think("mixed provider stream"), 200);
+	check("stray delta after close keeps the time", md("mixed provider stream", false).includes("· 4.0s"), md("mixed provider stream", false));
+
+	// Long sessions: one record per run, so many runs never evict real timings.
+	const longBodies = Array.from({ length: 12 }, (_, i) => `run ${i} ` + "y".repeat(80));
+	for (const body of longBodies) {
+		fire("message_update", "thinking_start", think(""), 10000);
+		// Grow the text the way a stream does: many distinct prefixes, one run.
+		for (let end = 3; end < body.length; end += 3) fire("message_update", "thinking_delta", think(body.slice(0, end)), 10000);
+		fire("message_update", "thinking_end", think(body), 5000);
+	}
+	check("many runs keep the earliest timing", md(longBodies[0], false).includes("· 5.0s"), md(longBodies[0], false));
+	check("many runs keep the latest timing", md(longBodies[11], false).includes("· 5.0s"), md(longBodies[11], false));
+
+	// Redacted thinking arrives complete at start and emits no deltas.
+	fire("message_update", "thinking_start", think("[Reasoning redacted]"), 6000);
+	fire("message_update", "thinking_end", think("[Reasoning redacted]"), 4000);
+	check("redacted run is timed", md("[Reasoning redacted]", false).includes("· 2.0s"), md("[Reasoning redacted]", false));
 
 	// session_start clears the in-memory table; untimed blocks fall back to lines.
 	handlers.get("session_start")!({}, {});

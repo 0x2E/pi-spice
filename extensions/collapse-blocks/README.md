@@ -14,7 +14,7 @@ $ cargo build · ✗ 18.4s
 error: could not compile `pi-tui`
 ```
 
-While a call runs, the row shows the command plus the live last output line; while thinking streams, the block shows its status line plus the newest line. A thinking status line shows the thinking phase's own time — counting up live while streaming, exact once the phase closes — and falls back to a line count when untimed (blocks streamed before this session of the extension, or after a restart).
+While a call runs, the row shows the command plus the live last output line; while thinking streams, the block shows its status line plus the newest line. A thinking status line shows the thinking phase's own time — counted in whole seconds while streaming, exact once the phase closes — and falls back to a line count when untimed (blocks streamed before this session of the extension, or after a restart).
 
 ## Install
 

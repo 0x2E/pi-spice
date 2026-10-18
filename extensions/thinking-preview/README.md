@@ -12,7 +12,7 @@ pi streams reasoning tokens in full, which can flood the transcript on long thin
 
 The block renders as a blockquote, so it carries pi's `│ ` left bar and quote color — visually distinct from plain thinking text, echoing the framed look of tool-call rows (an exact `edit`/`bash`-style background box isn't reachable from a Markdown transformer).
 
-The preview refreshes on every streaming token, so the block doubles as a progress indicator — no flooding, but you always roughly know where the model is. The status line shows the thinking phase's own time: counting up in whole seconds while it streams, freezing to the exact length when the phase closes — the text the response goes on to generate never counts. Blocks without a measured time (streamed before this session of the extension, or after a restart) fall back to a line count.
+The preview refreshes on every streaming token, so the block doubles as a progress indicator — no flooding, but you always roughly know where the model is. The status line shows the thinking phase's own time: counted in whole seconds (floored, so the number never steps backward) while it streams, switching to the exact length once the phase closes — the text the response goes on to generate never counts. Blocks without a measured time (streamed before this session of the extension, or after a restart) fall back to a line count.
 
 ## Install
 

@@ -238,9 +238,13 @@ function formatDuration(ms: number): string {
 	return `${Math.floor(minutes / 60)}h ${minutes % 60}m ${total % 60}s`;
 }
 
-/** Live thinking time: whole seconds — a calmer counter than formatDuration's decimals. */
+/**
+ * Live thinking time: whole seconds, floored so the number never steps
+ * backward when the phase closes and its exact time replaces this.
+ */
 function streamingDuration(ms: number): string {
-	const total = Math.max(1, Math.ceil(ms / 1000));
+	if (ms < 1000) return "<1s";
+	const total = Math.floor(ms / 1000);
 	const minutes = Math.floor(total / 60);
 	if (minutes < 1) return `${total}s`;
 	if (minutes < 60) return `${minutes}m ${total % 60}s`;
@@ -366,14 +370,15 @@ interface ThinkingTiming {
 }
 
 /**
- * Run timings keyed by the first 64 code points of the run's display text —
- * the same trim + "\n\n" join pi renders with, so the transformer's markdown
- * keys back into a timing the message events recorded. While a run streams
- * its text grows, re-keying it until it passes 64 characters; the short-lived
- * keys become orphaned entries, harmless and capped away with the rest.
+ * Run timings keyed by a hash of the run's full display text — the same trim
+ * + "\n\n" join pi renders with, so the transformer's markdown keys back
+ * into the timing the message events recorded. Hashing the whole text gives
+ * one record per run: a run's key changes on every delta, and the previous
+ * key of the open run is dropped as it changes, so the table holds one
+ * record per closed run plus at most one open record. Two runs collide only
+ * when their thinking text is identical.
  */
 const thinkingTimings = new Map<string, ThinkingTiming>();
-const TIMING_KEY_CHARS = 64;
 const TIMING_MAX_ENTRIES = 512;
 
 /** The thinking run currently streaming: opened at thinking_start, keyed once its text exists. */
@@ -405,9 +410,14 @@ function thinkingRuns(content: readonly MaybeThinking[]): string[] {
 	return runs;
 }
 
-/** Key a thinking run by its display text. */
+/** Stable per-run key: FNV-1a over the run's display text. */
 function timingKey(text: string): string {
-	return [...text].slice(0, TIMING_KEY_CHARS).join("");
+	let hash = 0x811c9dc5;
+	for (let index = 0; index < text.length; index++) {
+		hash ^= text.charCodeAt(index);
+		hash = Math.imul(hash, 0x01000193);
+	}
+	return (hash >>> 0).toString(36);
 }
 
 /** Upsert a timing, refreshing insertion order; evict oldest past the cap. */
@@ -436,36 +446,60 @@ function upsertTiming(key: string, timing: ThinkingTiming): void {
 function onThinkingEvent(eventType: string | undefined, content: readonly MaybeThinking[]): void {
 	const now = Date.now();
 	if (eventType === "thinking_start") {
+		closeLiveRun(now); // defensive: a start while a run is open closes that run
 		liveRun = { start: now, key: undefined };
 		return;
 	}
 	if (eventType === "thinking_delta") {
-		const key = timingKey(thinkingRuns(content).at(-1) ?? "");
+		const text = thinkingRuns(content).at(-1) ?? "";
+		const key = text ? timingKey(text) : "";
 		if (!key) return; // redacted/empty: nothing displayable to time yet
+		// A delta for a run already timed — a stray reasoning chunk after the
+		// phase closed — must neither reopen nor overwrite that time.
+		if (thinkingTimings.get(key)?.end !== undefined) return;
 		liveRun ??= { start: now, key: undefined }; // missed the start: open late
+		// The key follows the growing text; drop the open run's previous key so
+		// only one open record ever exists.
+		if (liveRun.key !== undefined && liveRun.key !== key) thinkingTimings.delete(liveRun.key);
 		liveRun.key = key;
 		upsertTiming(key, { start: liveRun.start, end: undefined });
 		return;
 	}
 	if (eventType === "thinking_end") {
-		const key = timingKey(thinkingRuns(content).at(-1) ?? "");
-		if (liveRun && key) upsertTiming(key, { start: liveRun.start, end: now });
-		liveRun = undefined;
+		// thinking_end carries the authoritative text, so re-key from it: the open
+		// record may predate the run's final characters.
+		const text = thinkingRuns(content).at(-1) ?? "";
+		const key = text ? timingKey(text) : undefined;
+		if (liveRun && key) {
+			if (liveRun.key !== undefined && liveRun.key !== key) thinkingTimings.delete(liveRun.key);
+			liveRun.key = key;
+		}
+		closeLiveRun(now);
 		return;
 	}
 	// First text/tool-call event: the phase is over. Providers that emit
 	// thinking_end at its native boundary have already closed the run above;
 	// openai-completions-style providers only emit it after the whole stream.
+	closeLiveRun(now);
+}
+
+/**
+ * Close the open run at `now` and forget it. A record that is already closed
+ * keeps the time it was closed with.
+ */
+function closeLiveRun(now: number): void {
 	if (liveRun?.key) {
-		upsertTiming(liveRun.key, { start: liveRun.start, end: now });
-		liveRun = undefined;
+		const existing = thinkingTimings.get(liveRun.key);
+		if (existing === undefined || existing.end === undefined) {
+			upsertTiming(liveRun.key, { start: liveRun.start, end: now });
+		}
 	}
+	liveRun = undefined;
 }
 
 /** Close a still-open phase at the response's end (abort path); forget the live run. */
 function onAssistantMessageEnd(): void {
-	if (liveRun?.key) upsertTiming(liveRun.key, { start: liveRun.start, end: Date.now() });
-	liveRun = undefined;
+	closeLiveRun(Date.now());
 }
 
 /**
@@ -502,7 +536,7 @@ function clipLine(line: string, maxChars: number): string {
  * finished, the status line plus the newest line while streaming, and the
  * full escaped text when toggled open — all inside one `│ `-framed
  * blockquote, the same frame pi gives thinking. The status line's meta is
- * the response's time when known (see thinkingMeta), the line count
+ * the thinking phase's time when known (see thinkingMeta), the line count
  * otherwise.
  */
 function thinkingMarkdown(markdown: string, isStreaming: boolean, availableWidth: number): string {
