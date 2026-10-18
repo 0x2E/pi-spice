@@ -30,4 +30,4 @@ jobs:
       - run: npm ci
 
       - name: Extension changes require a changeset declaring them
-        run: node scripts/check-changesets.mjs "origin/${{ github.base_ref }}"
+        run: node scripts/check-changesets.ts "origin/${{ github.base_ref }}"

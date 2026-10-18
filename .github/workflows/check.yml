@@ -9,6 +9,7 @@ on:
       - "extensions/**"
       - "scripts/**"
       - "tsconfig.json"
+      - "tsconfig.scripts.json"
       - "package.json"
       - "package-lock.json"
       - ".github/workflows/check.yml"
